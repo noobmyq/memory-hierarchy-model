@@ -9,6 +9,7 @@
 #include <string>
 #include <iomanip>
 #include <iostream>
+#include "data_cache.h"
 
 // Page Table Entry
 struct PageTableEntry {
@@ -27,6 +28,7 @@ private:
     std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables;
     UINT64 cr3;                  // Page table base register (points to PGD)
     PhysicalMemory& physMem;     // Reference to physical memory
+    DataCache& dataCache; // Reference to data cache
     
     // Two-level TLB
     TLB l1Tlb;                   // L1 TLB (smaller, faster)
@@ -44,6 +46,9 @@ private:
     UINT64 pudCacheHits;         // Translations requiring PUD PWC
     UINT64 pgdCacheHits;         // Translations requiring PGD PWC
     UINT64 fullWalks;            // Translations requiring full page walk
+    size_t pageWalkMemAccess;    // 页表遍历导致的实际内存访问
+    size_t pteDataCacheHits;     // 页表项缓存命中次数
+    size_t pteDataCacheMisses;   // 页表项缓存未命中次数
 
     // Per-level statistics
     struct PageTableLevelStats {
@@ -63,11 +68,11 @@ private:
     PageTableLevelStats pteStats;
 
 public:
-    PageTable(PhysicalMemory& physicalMemory, 
+    PageTable(PhysicalMemory& physicalMemory, DataCache& dataCache, 
              size_t l1TlbSize = 64, size_t l1TlbWays = 4,
              size_t l2TlbSize = 1024, size_t l2TlbWays = 8,
              size_t pwcSize = 16, size_t pwcWays = 4) 
-        : physMem(physicalMemory), 
+        : physMem(physicalMemory), dataCache(dataCache), 
           l1Tlb("L1 TLB", l1TlbSize, l1TlbWays),
           l2Tlb("L2 TLB", l2TlbSize, l2TlbWays),
           pgdPwc("PML4E Cache (PGD)", pwcSize, pwcWays, 39, 47),
@@ -113,7 +118,17 @@ public:
         UINT32 offset = getOffset(vaddr);
         
         // Access the PTE table
-        pteStats.accesses++;
+        UINT64 pteEntryAddr = pteAddr + (pteIndex * sizeof(PageTableEntry));
+        // first access data cache
+        UINT64 dummy;
+        bool hit = dataCache.access(dataCache.getTag(pteEntryAddr), dummy);
+        if (hit) {
+            pteDataCacheHits++;
+        } else {
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pteStats.accesses++;
+        }
         PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
         
         // Allocate physical page if not present
@@ -132,9 +147,19 @@ public:
     ADDRINT completePudCacheHit(ADDRINT vaddr, UINT64 pmdTablePfn) {
         UINT64 pmdAddr = pmdTablePfn << PAGE_SHIFT;
         UINT32 pmdIndex = getPmdIndex(vaddr);
-        
+
         // Access the PMD table
-        pmdStats.accesses++;
+        UINT64 pmdEntryAddr = pmdAddr + (pmdIndex * sizeof(PageTableEntry));
+        // first access data cache
+        UINT64 dummy;
+        bool hit = dataCache.access(dataCache.getTag(pmdEntryAddr), dummy);
+        if (hit) {
+            pteDataCacheHits++;
+        } else {
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pmdStats.accesses++;
+        }
         PageTableEntry& pmdEntry = pageTables[pmdAddr][pmdIndex];
         
         // Allocate PTE if not present
@@ -159,9 +184,19 @@ public:
     ADDRINT completePgdCacheHit(ADDRINT vaddr, UINT64 pudTablePfn) {
         UINT64 pudAddr = pudTablePfn << PAGE_SHIFT;
         UINT32 pudIndex = getPudIndex(vaddr);
-        
+
         // Access the PUD table
-        pudStats.accesses++;
+        UINT64 pudEntryAddr = pudAddr + (pudIndex * sizeof(PageTableEntry));
+        // first access data cache
+        UINT64 dummy;
+        bool hit = dataCache.access(dataCache.getTag(pudEntryAddr), dummy);
+        if (hit) {
+            pteDataCacheHits++;
+        } else {
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pudStats.accesses++;
+        }
         PageTableEntry& pudEntry = pageTables[pudAddr][pudIndex];
         
         // Allocate PMD if not present
@@ -185,8 +220,19 @@ public:
     // Complete a full page table walk
     ADDRINT completeFullWalk(ADDRINT vaddr) {
         // Step 1: Get PGD entry
-        pgdStats.accesses++;
         UINT32 pgdIndex = getPgdIndex(vaddr);
+        UINT64 pgdAddr = cr3 + (pgdIndex * sizeof(PageTableEntry));
+        // first access data cache
+        UINT64 dummy;
+        bool hit = dataCache.access(dataCache.getTag(pgdAddr), dummy);
+        if (hit) {
+            pteDataCacheHits++;
+        } else {
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pgdStats.accesses++;
+        }
+        
         PageTableEntry& pgdEntry = pageTables[cr3][pgdIndex];
 
         // Allocate PUD if not present
@@ -413,6 +459,17 @@ public:
         os << "\nTotal page tables: " << pageTables.size() << std::endl;
         os << "Total memory for page tables: " 
            << (pageTables.size() * PAGE_SIZE) / (1024.0 * 1024.0) << " MB" << std::endl;
+    }
+
+    void printMemoryStats(std::ostream& os) const {
+        os << "\nMemory Access Statistics (from Page Table):\n";
+        os << "=========================================\n";
+        os << std::left << std::setw(35) << "Page Table Entry Cache Hits" 
+           << std::right << std::setw(10) << pteDataCacheHits << "\n";
+        os << std::left << std::setw(35) << "Page Table Entry Cache Misses" 
+           << std::right << std::setw(10) << pteDataCacheMisses << "\n";
+        os << std::left << std::setw(35) << "Page Walk Memory Accesses" 
+           << std::right << std::setw(10) << pageWalkMemAccess << "\n";
     }
 
 private:

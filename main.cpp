@@ -3,7 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
-#include <iomanip>
+#include "data_cache.h"
 
 int main(int argc, char* argv[]) {
     // Check command line arguments
@@ -20,6 +20,11 @@ int main(int argc, char* argv[]) {
     size_t pwc_size = 16;       // Default PWC entries
     size_t pwc_ways = 4;        // Default PWC associativity
     UINT64 phys_mem_size = PHYSICAL_MEMORY_SIZE;  // Default physical memory size (1TB)
+
+    // main.cpp 中解析参数部分
+    size_t data_cache_size = 32768;   // 默认32KB
+    size_t data_cache_ways = 8;       // 默认8路
+    size_t data_cache_line = 64;      // 默认64字节行
     
     // Parse L1 TLB size if provided
     if (argc > 2) {
@@ -56,6 +61,13 @@ int main(int argc, char* argv[]) {
         UINT64 phys_mem_gb = std::stoull(argv[8]);
         phys_mem_size = phys_mem_gb * (1ULL << 30);  // Convert GB to bytes
     }
+
+
+    if (argc > 9) data_cache_size = std::stoul(argv[9]);
+    if (argc > 10) data_cache_ways = std::stoul(argv[10]);
+    if (argc > 11) data_cache_line = std::stoul(argv[11]);
+
+    DataCache dataCache("Data Cache", data_cache_size, data_cache_ways, data_cache_line);
     
     std::cout << "Reading trace file: " << trace_file << std::endl;
     std::cout << "L1 TLB configuration: " << l1_tlb_size << " entries, " << l1_tlb_ways << "-way set associative" << std::endl;
@@ -72,7 +84,7 @@ int main(int argc, char* argv[]) {
     
     // Initialize components
     PhysicalMemory physicalMemory(phys_mem_size);
-    PageTable pageTable(physicalMemory, 
+    PageTable pageTable(physicalMemory, dataCache,
                         l1_tlb_size, l1_tlb_ways, 
                         l2_tlb_size, l2_tlb_ways, 
                         pwc_size, pwc_ways);
@@ -83,6 +95,7 @@ int main(int argc, char* argv[]) {
     
     // Counter for progress reporting
     size_t access_count = 0;
+    size_t data_cache_hits = 0;
     
     // Read MEMREF structures from the file
     MEMREF ref;
@@ -93,6 +106,8 @@ int main(int argc, char* argv[]) {
             // Translate virtual address to physical
             ADDRINT vaddr = ref.ea;
             ADDRINT paddr = pageTable.translate(vaddr);
+            bool hit = dataCache.access(paddr, ref.read);
+            if (hit) data_cache_hits++;
             
             // Track page usage
             UINT64 virtual_page = vaddr / PAGE_SIZE;
@@ -123,9 +138,12 @@ int main(int argc, char* argv[]) {
     std::cout << "Unique physical pages: " << physical_pages.size() << std::endl;
     std::cout << "Physical memory usage: " 
               << (physical_pages.size() * PAGE_SIZE) / (1024.0 * 1024.0) << " MB" << std::endl;
-    
+    std::cout << "Data Cache Hit Rate: " << dataCache.getHitRate() * 100.0 << "%" << std::endl;
     // Print detailed statistics
     pageTable.printDetailedStats(std::cout);
+    pageTable.printMemoryStats(std::cout);
+    // Print data cache statistics
+    dataCache.printDetailedStats(std::cout);
     
     return 0;
 }
