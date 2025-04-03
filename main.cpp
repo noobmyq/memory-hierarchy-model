@@ -156,29 +156,47 @@ int main(int argc, char* argv[]) try {
     // 处理内存引用
     std::unordered_map<UINT64, size_t> virtual_pages, physical_pages;
     size_t access_count = 0;
-    MEMREF ref;
 
-    while (input.read(reinterpret_cast<char*>(&ref), sizeof(MEMREF))) {
-        if (input.gcount() != sizeof(MEMREF)) break;
-
-        access_count++;
-        const ADDRINT vaddr = ref.ea;
-        const ADDRINT paddr = page_table.translate(vaddr);
-
-        // 访问缓存层级
-        UINT64 value = 0;
-        cache_hierarchy.access(paddr, value, ref.read);
-
-        // 统计页面使用
-        virtual_pages[vaddr / PAGE_SIZE]++;
-        physical_pages[paddr / PAGE_SIZE]++;
-
-        // 进度显示
-        if (access_count % 1'000'000 == 0) {
-            std::cout << "Processed " << (access_count / 1'000'000) << "M accesses\r";
+    static const size_t BATCH_SIZE = 4096;
+    std::vector<MEMREF> buffer(BATCH_SIZE);
+    
+    while (true) {
+        // Read up to BATCH_SIZE MEMREF entries from the binary trace file
+        input.read(reinterpret_cast<char*>(buffer.data()),
+                   BATCH_SIZE * sizeof(MEMREF));
+        std::streamsize bytesRead = input.gcount();
+        if (bytesRead == 0) {
+            // No more data to read (end of file reached)
+            break;
+        }
+    
+        // Calculate how many MEMREF records were read in this batch
+        size_t recordsRead = bytesRead / sizeof(MEMREF);
+        if (bytesRead % sizeof(MEMREF) != 0) {
+            // If a partial record was read (should not happen in a well-formed trace),
+            // skip the incomplete record
+            break;
+        }
+    
+        // Process each MEMREF in the batch
+        for (size_t i = 0; i < recordsRead; ++i) {
+            const MEMREF &ref = buffer[i];
+            access_count++;
+            const ADDRINT vaddr = ref.ea;
+            const ADDRINT paddr = page_table.translate(vaddr);
+            UINT64 value = 0;
+            cache_hierarchy.access(paddr, value, ref.read);
+            virtual_pages[vaddr / PAGE_SIZE]++;       // track virtual page usage
+            physical_pages[paddr / PAGE_SIZE]++;      // track physical page usage
+    
+            // Progress display every 1,000,000 accesses
+            if (access_count % 1'000'000 == 0) {
+                std::cout << "Processed " << (access_count / 1'000'000)
+                          << "M accesses\r";
+            }
         }
     }
-
+    
     // 输出统计结果
     std::cout << "\n\nSimulation Results:\n"
               << "==================\n"
