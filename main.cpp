@@ -208,13 +208,11 @@ int main(int argc, char* argv[]) try {
             const ADDRINT paddr = page_table.translate(vaddr);
             UINT64 value = 0;
             cache_hierarchy.access(paddr, value, ref.read);
-            virtual_pages[vaddr / PAGE_SIZE]++;   // track virtual page usage
-            physical_pages[paddr / PAGE_SIZE]++;  // track physical page usage
 
             // Progress display every 10,000,000 accesses
             if (access_count % 10000000 == 0) {
                 std::cout << "Processed " << (access_count / 10000000)
-                          << "M accesses\r";
+                          << "*10M accesses\r";
             }
         }
     }
