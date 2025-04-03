@@ -10,7 +10,7 @@ private:
     UINT64 size;                          // Size in bytes
     UINT64 allocatedFrames;               // Number of allocated frames
     std::vector<bool> frameAllocated;     // Bitmap of allocated frames
-
+    UINT64 nextFrame;                  // Next frame to allocate
 public:
     PhysicalMemory(UINT64 memorySize = PHYSICAL_MEMORY_SIZE) 
         : size(memorySize), allocatedFrames(0) {
@@ -23,15 +23,14 @@ public:
 
     // Allocate a physical frame
     UINT64 allocateFrame() {
-        for (UINT64 i = 1; i < frameAllocated.size(); i++) {
-            if (!frameAllocated[i]) {
-                frameAllocated[i] = true;
-                allocatedFrames++;
-                return i;
-            }
+        if (nextFrame >= frameAllocated.size()) {
+            // No free frames available
+            throw std::runtime_error("Physical memory exhausted");
         }
-        // Out of memory - in real systems this would trigger page replacement
-        throw std::runtime_error("Physical memory exhausted");
+        frameAllocated[nextFrame] = true;
+        allocatedFrames++;
+        nextFrame++;
+        return nextFrame - 1;
     }
 
     // Get statistics
