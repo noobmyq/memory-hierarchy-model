@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdexcept>
 #include <vector>
 #include "common.h"
 
@@ -14,7 +13,7 @@ class PhysicalMemory {
    public:
     PhysicalMemory(UINT64 memorySize = PHYSICAL_MEMORY_SIZE)
         : size(memorySize), allocatedFrames(0) {
-        UINT64 numFrames = size / PAGE_SIZE;
+        UINT64 numFrames = size / MEMTRACE_PAGE_SIZE;
         frameAllocated.resize(numFrames, false);
         // Reserve frame 0 for null pointer detection
         frameAllocated[0] = true;
@@ -25,8 +24,10 @@ class PhysicalMemory {
     // Allocate a physical frame
     UINT64 allocateFrame() {
         if (nextFrame >= frameAllocated.size()) {
-            // No free frames available
-            throw std::runtime_error("Physical memory exhausted");
+            // // No free frames available
+            // throw std::runtime_error("Physical memory exhausted");
+            std::cerr << "Error: Physical memory exhausted. No more frames available.\n";
+            exit(1);
         }
         frameAllocated[nextFrame] = true;
         allocatedFrames++;

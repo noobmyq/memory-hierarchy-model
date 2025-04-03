@@ -94,7 +94,7 @@ class PageTable {
           pmdStats("PMD (Page Middle Directory)"),
           pteStats("PTE (Page Table Entry)") {
         // Allocate the root page table (PGD)
-        cr3 = physMem.allocateFrame() * PAGE_SIZE;
+        cr3 = physMem.allocateFrame() * MEMTRACE_PAGE_SIZE;
         pageTables[cr3] = std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
         pgdStats.allocations++;
         pgdStats.entries++;
@@ -169,7 +169,7 @@ class PageTable {
             pmdEntry.present = 1;
             pmdEntry.writable = 1;
             pmdEntry.pfn = physMem.allocateFrame();
-            UINT64 pteAddr = pmdEntry.pfn * PAGE_SIZE;
+            UINT64 pteAddr = pmdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pteAddr] =
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pteStats.allocations++;
@@ -208,7 +208,7 @@ class PageTable {
             pudEntry.present = 1;
             pudEntry.writable = 1;
             pudEntry.pfn = physMem.allocateFrame();
-            UINT64 pmdAddr = pudEntry.pfn * PAGE_SIZE;
+            UINT64 pmdAddr = pudEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pmdAddr] =
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pmdStats.allocations++;
@@ -246,7 +246,7 @@ class PageTable {
             pgdEntry.present = 1;
             pgdEntry.writable = 1;
             pgdEntry.pfn = physMem.allocateFrame();
-            UINT64 pudAddr = pgdEntry.pfn * PAGE_SIZE;
+            UINT64 pudAddr = pgdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pudAddr] =
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pudStats.allocations++;
@@ -495,7 +495,7 @@ class PageTable {
 
         os << "\nTotal page tables: " << pageTables.size() << std::endl;
         os << "Total memory for page tables: "
-           << (pageTables.size() * PAGE_SIZE) / (1024.0 * 1024.0) << " MB"
+           << (pageTables.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024.0) << " MB"
            << std::endl;
     }
 

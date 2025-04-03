@@ -1,0 +1,50 @@
+#
+# Copyright (C) 2023 Your Name or Organization.
+# SPDX-License-Identifier: MIT
+#
+
+##############################################################
+#
+# This Makefile is for building the memory_simulator Pin tool.
+#
+##############################################################
+
+###### Place all generic definitions here ######
+
+# This defines the tool which will be built.
+TOOL_ROOTS := memory_simulator
+
+# This defines any additional object files that need to be compiled.
+OBJECT_ROOTS :=
+
+# This defines any static libraries (archives) that need to be built.
+LIB_ROOTS :=
+
+###### Place OS-specific definitions here ######
+
+# No OS-specific definitions needed for this tool.
+
+###### Define the sanity subset ######
+
+# This defines the list of tests that should run in sanity (none for now).
+SANITY_SUBSET :=
+
+##############################################################
+#
+# Build rules
+#
+##############################################################
+
+# Source Files
+TOOL_SRCS := memory_simulator.cpp cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb.h
+
+# Compiler Flags
+TOOL_CXXFLAGS += -std=c++17 -w -O3
+
+# Include Directories (assuming headers are in the same directory)
+TOOL_INCS += -I. 
+
+# Link with Pin Libraries
+# TOOL_LIBS += -lpin
+
+# Include Pin's Default Rules
