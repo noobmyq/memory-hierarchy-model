@@ -86,6 +86,9 @@ class PageTable {
           pudCacheHits(0),
           pgdCacheHits(0),
           fullWalks(0),
+          pageWalkMemAccess(0),
+          pteDataCacheHits(0),
+          pteDataCacheMisses(0),
           pgdStats("PGD (Page Global Directory)"),
           pudStats("PUD (Page Upper Directory)"),
           pmdStats("PMD (Page Middle Directory)"),
@@ -499,9 +502,9 @@ class PageTable {
     void printMemoryStats(std::ostream& os) const {
         os << "\nMemory Access Statistics (from Page Table):\n";
         os << "=========================================\n";
-        os << std::left << std::setw(35) << "Page Table Entry Cache Hits"
+        os << std::left << std::setw(35) << "Page Table Entry data Cache Hits"
            << std::right << std::setw(10) << pteDataCacheHits << "\n";
-        os << std::left << std::setw(35) << "Page Table Entry Cache Misses"
+        os << std::left << std::setw(35) << "Page Table Entry data Cache Misses"
            << std::right << std::setw(10) << pteDataCacheMisses << "\n";
         os << std::left << std::setw(35) << "Page Walk Memory Accesses"
            << std::right << std::setw(10) << pageWalkMemAccess << "\n";

@@ -19,6 +19,7 @@ class PhysicalMemory {
         // Reserve frame 0 for null pointer detection
         frameAllocated[0] = true;
         allocatedFrames = 1;
+        nextFrame = 1;  // Start allocating from frame 1
     }
 
     // Allocate a physical frame
