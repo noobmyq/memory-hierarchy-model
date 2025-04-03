@@ -1,18 +1,18 @@
 #pragma once
 
-#include "common.h"
-#include <vector>
 #include <stdexcept>
+#include <vector>
+#include "common.h"
 
 // Physical Memory Pool
 class PhysicalMemory {
-private:
-    UINT64 size;                          // Size in bytes
-    UINT64 allocatedFrames;               // Number of allocated frames
-    std::vector<bool> frameAllocated;     // Bitmap of allocated frames
+   private:
+    UINT64 size;                       // Size in bytes
+    UINT64 allocatedFrames;            // Number of allocated frames
+    std::vector<bool> frameAllocated;  // Bitmap of allocated frames
     UINT64 nextFrame;                  // Next frame to allocate
-public:
-    PhysicalMemory(UINT64 memorySize = PHYSICAL_MEMORY_SIZE) 
+   public:
+    PhysicalMemory(UINT64 memorySize = PHYSICAL_MEMORY_SIZE)
         : size(memorySize), allocatedFrames(0) {
         UINT64 numFrames = size / PAGE_SIZE;
         frameAllocated.resize(numFrames, false);
@@ -36,8 +36,8 @@ public:
     // Get statistics
     UINT64 getAllocatedFrames() const { return allocatedFrames; }
     UINT64 getTotalFrames() const { return frameAllocated.size(); }
-    double getUtilization() const { 
-        return static_cast<double>(allocatedFrames) / frameAllocated.size(); 
+    double getUtilization() const {
+        return static_cast<double>(allocatedFrames) / frameAllocated.size();
     }
     UINT64 getSize() const { return size; }
 };

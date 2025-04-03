@@ -1,35 +1,35 @@
 #pragma once
 
-#include "common.h"
 #include "cache.h"
+#include "common.h"
 
 // Page Walk Cache (PWC) - caches partial translations
 class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
-private:
-    UINT32 indexBitsLow;    // Low bit position for VA tag extraction
-    UINT32 indexBitsHigh;   // High bit position for VA tag extraction
+   private:
+    UINT32 indexBitsLow;   // Low bit position for VA tag extraction
+    UINT32 indexBitsHigh;  // High bit position for VA tag extraction
 
-protected:
+   protected:
     // Hash function to map VA tag to set index
     size_t getSetIndex(const UINT64& vaTag) const override {
         return vaTag % numSets;
     }
 
-public:
-    PageWalkCache(const std::string& cacheName, size_t numEntries = 16, 
-                 size_t associativity = 4, UINT32 lowBit = 0, UINT32 highBit = 63)
+   public:
+    PageWalkCache(const std::string& cacheName, size_t numEntries = 16,
+                  size_t associativity = 4, UINT32 lowBit = 0,
+                  UINT32 highBit = 63)
         : SetAssociativeCache<UINT64, UINT64>(
-            cacheName,
-            numEntries / associativity, // Sets = Total entries / Ways
-            associativity
-          ),
+              cacheName,
+              numEntries / associativity,  // Sets = Total entries / Ways
+              associativity),
           indexBitsLow(lowBit),
-          indexBitsHigh(highBit) {
-    }
+          indexBitsHigh(highBit) {}
 
     // Extract tag from virtual address
     UINT64 getTag(ADDRINT vaddr) const {
-        UINT64 mask = ((1ULL << (indexBitsHigh - indexBitsLow + 1)) - 1) << indexBitsLow;
+        UINT64 mask = ((1ULL << (indexBitsHigh - indexBitsLow + 1)) - 1)
+                      << indexBitsLow;
         return (vaddr & mask) >> indexBitsLow;
     }
 

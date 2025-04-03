@@ -1,24 +1,23 @@
 #pragma once
 
-#include "common.h"
 #include "cache.h"
+#include "common.h"
 
 // Translation Lookaside Buffer (TLB) - maps VPN to PFN
 class TLB : public SetAssociativeCache<UINT64, UINT64> {
-protected:
+   protected:
     // Hash function to map VPN to set index
     size_t getSetIndex(const UINT64& vpn) const override {
         return vpn % numSets;
     }
 
-public:
-    TLB(const std::string& cacheName = "TLB", size_t numEntries = 64, size_t associativity = 4)
+   public:
+    TLB(const std::string& cacheName = "TLB", size_t numEntries = 64,
+        size_t associativity = 4)
         : SetAssociativeCache<UINT64, UINT64>(
-            cacheName, 
-            numEntries / associativity, // Sets = Total entries / Ways 
-            associativity
-          ) {
-    }
+              cacheName,
+              numEntries / associativity,  // Sets = Total entries / Ways
+              associativity) {}
 
     // VPN to PFN mapping lookup
     bool lookup(UINT64 vpn, UINT64& pfn) {
