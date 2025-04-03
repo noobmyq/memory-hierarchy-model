@@ -4,6 +4,7 @@
 #include "tlb.h"
 #include "pwc.h"
 #include "physical_memory.h"
+#include <cassert>
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -28,7 +29,7 @@ private:
     std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables;
     UINT64 cr3;                  // Page table base register (points to PGD)
     PhysicalMemory& physMem;     // Reference to physical memory
-    DataCache& dataCache; // Reference to data cache
+    CacheHierarchy& dataCache; // Reference to data cache
     
     // Two-level TLB
     TLB l1Tlb;                   // L1 TLB (smaller, faster)
@@ -68,7 +69,7 @@ private:
     PageTableLevelStats pteStats;
 
 public:
-    PageTable(PhysicalMemory& physicalMemory, DataCache& dataCache, 
+    PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache, 
              size_t l1TlbSize = 64, size_t l1TlbWays = 4,
              size_t l2TlbSize = 1024, size_t l2TlbWays = 8,
              size_t pwcSize = 16, size_t pwcWays = 4) 
@@ -120,15 +121,8 @@ public:
         // Access the PTE table
         UINT64 pteEntryAddr = pteAddr + (pteIndex * sizeof(PageTableEntry));
         // first access data cache
-        UINT64 dummy;
-        bool hit = dataCache.access(dataCache.getTag(pteEntryAddr), dummy);
-        if (hit) {
-            pteDataCacheHits++;
-        } else {
-            pteDataCacheMisses++;
-            pageWalkMemAccess++;
-            pteStats.accesses++;
-        }
+        UINT64 pteEntryValue = 0;
+        bool hit = dataCache.access(pteEntryAddr, pteEntryValue, false);
         PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
         
         // Allocate physical page if not present
@@ -139,6 +133,15 @@ public:
             pteStats.entries++;
         }
         
+        if (hit) {
+            assert(*((UINT64*)&pteEntry) == pteEntryValue);
+            pteDataCacheHits++;
+        } else {
+            dataCache.access(pteEntryAddr, *((UINT64*)&pteEntry), true);
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pteStats.accesses++;
+        }
         // Return physical address
         return (pteEntry.pfn << PAGE_SHIFT) | offset;
     }
@@ -151,17 +154,9 @@ public:
         // Access the PMD table
         UINT64 pmdEntryAddr = pmdAddr + (pmdIndex * sizeof(PageTableEntry));
         // first access data cache
-        UINT64 dummy;
-        bool hit = dataCache.access(dataCache.getTag(pmdEntryAddr), dummy);
-        if (hit) {
-            pteDataCacheHits++;
-        } else {
-            pteDataCacheMisses++;
-            pageWalkMemAccess++;
-            pmdStats.accesses++;
-        }
+        UINT64 pmdEntryValue = 0;
+        bool hit = dataCache.lookup(pmdEntryAddr, pmdEntryValue);
         PageTableEntry& pmdEntry = pageTables[pmdAddr][pmdIndex];
-        
         // Allocate PTE if not present
         if (!pmdEntry.present) {
             pmdEntry.present = 1;
@@ -172,6 +167,16 @@ public:
             pteStats.allocations++;
             pmdStats.entries++;
         }
+        if (hit) {
+            pteDataCacheHits++;
+            assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
+        } else {
+            dataCache.access(pmdEntryAddr, *((UINT64*)&pmdEntry), true);
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pmdStats.accesses++;
+        }
+        
         
         // Insert into PMD PWC
         pmdPwc.insert(vaddr, pmdEntry.pfn);
@@ -188,17 +193,9 @@ public:
         // Access the PUD table
         UINT64 pudEntryAddr = pudAddr + (pudIndex * sizeof(PageTableEntry));
         // first access data cache
-        UINT64 dummy;
-        bool hit = dataCache.access(dataCache.getTag(pudEntryAddr), dummy);
-        if (hit) {
-            pteDataCacheHits++;
-        } else {
-            pteDataCacheMisses++;
-            pageWalkMemAccess++;
-            pudStats.accesses++;
-        }
-        PageTableEntry& pudEntry = pageTables[pudAddr][pudIndex];
-        
+        UINT64 pudEntryValue = 0;
+        bool hit = dataCache.lookup(pudEntryAddr, pudEntryValue);
+        PageTableEntry &pudEntry = pageTables[pudAddr][pudIndex];
         // Allocate PMD if not present
         if (!pudEntry.present) {
             pudEntry.present = 1;
@@ -209,6 +206,17 @@ public:
             pmdStats.allocations++;
             pudStats.entries++;
         }
+        
+        if (hit) {
+            pteDataCacheHits++;
+            assert(*((UINT64*)&pudEntry) == pudEntryValue);
+        } else {
+            dataCache.access(pudEntryAddr, *((UINT64*)&pudEntry), true);
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pudStats.accesses++;
+        }
+        
         
         // Insert into PUD PWC
         pudPwc.insert(vaddr, pudEntry.pfn);
@@ -223,18 +231,9 @@ public:
         UINT32 pgdIndex = getPgdIndex(vaddr);
         UINT64 pgdAddr = cr3 + (pgdIndex * sizeof(PageTableEntry));
         // first access data cache
-        UINT64 dummy;
-        bool hit = dataCache.access(dataCache.getTag(pgdAddr), dummy);
-        if (hit) {
-            pteDataCacheHits++;
-        } else {
-            pteDataCacheMisses++;
-            pageWalkMemAccess++;
-            pgdStats.accesses++;
-        }
-        
+        UINT64 pgdEntryValue = 0;
+        bool hit = dataCache.lookup(pgdAddr, pgdEntryValue);
         PageTableEntry& pgdEntry = pageTables[cr3][pgdIndex];
-
         // Allocate PUD if not present
         if (!pgdEntry.present) {
             pgdEntry.present = 1;
@@ -245,6 +244,17 @@ public:
             pudStats.allocations++;
             pgdStats.entries++;
         }
+        if (hit) {
+          pteDataCacheHits++;
+            assert(*((UINT64*)&pgdEntry) == pgdEntryValue);
+        } else {
+            pteDataCacheMisses++;
+            pageWalkMemAccess++;
+            pgdStats.accesses++;
+            dataCache.access(pgdAddr, *((UINT64*)&pgdEntry), true);
+        }
+        
+
 
         // Insert into PGD PWC
         pgdPwc.insert(vaddr, pgdEntry.pfn);

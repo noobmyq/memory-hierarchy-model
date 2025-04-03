@@ -1,149 +1,201 @@
 #include "common.h"
 #include "page_table.h"
+#include "data_cache.h"
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
-#include "data_cache.h"
+#include <stdexcept>
 
-int main(int argc, char* argv[]) {
-    // Check command line arguments
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <trace_file> [l1_tlb_size] [l1_tlb_ways] [l2_tlb_size] [l2_tlb_ways] [pwc_size] [pwc_ways] [phys_mem_gb]" << std::endl;
-        return 1;
-    }
+struct SimConfig {
+    // 基本参数
+    std::string trace_file;
+    UINT64 phys_mem_gb = 1;
     
-    std::string trace_file = argv[1];
-    size_t l1_tlb_size = 64;    // Default L1 TLB entries
-    size_t l1_tlb_ways = 4;     // Default L1 TLB associativity
-    size_t l2_tlb_size = 1024;  // Default L2 TLB entries
-    size_t l2_tlb_ways = 8;     // Default L2 TLB associativity
-    size_t pwc_size = 16;       // Default PWC entries
-    size_t pwc_ways = 4;        // Default PWC associativity
-    UINT64 phys_mem_size = PHYSICAL_MEMORY_SIZE;  // Default physical memory size (1TB)
+    // TLB配置
+    struct {
+        size_t l1_size = 64;
+        size_t l1_ways = 4;
+        size_t l2_size = 1024;
+        size_t l2_ways = 8;
+    } tlb;
+    
+    // PWC配置
+    struct {
+        size_t size = 16;
+        size_t ways = 4;
+    } pwc;
+    
+    // 缓存层级配置
+    struct {
+        size_t l1_size = 32*1024;   // 32KB
+        size_t l1_ways = 8;
+        size_t l1_line = 64;
+        size_t l2_size = 256*1024;  // 256KB
+        size_t l2_ways = 16;
+        size_t l2_line = 64;
+        size_t l3_size = 8*1024*1024; // 8MB
+        size_t l3_ways = 16;
+        size_t l3_line = 64;
+    } cache;
 
-    // main.cpp 中解析参数部分
-    size_t data_cache_size = 32768;   // 默认32KB
-    size_t data_cache_ways = 8;       // 默认8路
-    size_t data_cache_line = 64;      // 默认64字节行
-    
-    // Parse L1 TLB size if provided
-    if (argc > 2) {
-        l1_tlb_size = std::stoul(argv[2]);
-    }
-    
-    // Parse L1 TLB ways if provided
-    if (argc > 3) {
-        l1_tlb_ways = std::stoul(argv[3]);
-    }
-    
-    // Parse L2 TLB size if provided
-    if (argc > 4) {
-        l2_tlb_size = std::stoul(argv[4]);
-    }
-    
-    // Parse L2 TLB ways if provided
-    if (argc > 5) {
-        l2_tlb_ways = std::stoul(argv[5]);
-    }
-    
-    // Parse PWC size if provided
-    if (argc > 6) {
-        pwc_size = std::stoul(argv[6]);
-    }
-    
-    // Parse PWC ways if provided
-    if (argc > 7) {
-        pwc_ways = std::stoul(argv[7]);
-    }
-    
-    // Parse physical memory size if provided (in GB)
-    if (argc > 8) {
-        UINT64 phys_mem_gb = std::stoull(argv[8]);
-        phys_mem_size = phys_mem_gb * (1ULL << 30);  // Convert GB to bytes
+    // 物理内存计算
+    UINT64 physical_mem_bytes() const {
+        return phys_mem_gb * (1ULL << 30);
     }
 
-
-    if (argc > 9) data_cache_size = std::stoul(argv[9]);
-    if (argc > 10) data_cache_ways = std::stoul(argv[10]);
-    if (argc > 11) data_cache_line = std::stoul(argv[11]);
-
-    DataCache dataCache("Data Cache", data_cache_size, data_cache_ways, data_cache_line);
-    
-    std::cout << "Reading trace file: " << trace_file << std::endl;
-    std::cout << "L1 TLB configuration: " << l1_tlb_size << " entries, " << l1_tlb_ways << "-way set associative" << std::endl;
-    std::cout << "L2 TLB configuration: " << l2_tlb_size << " entries, " << l2_tlb_ways << "-way set associative" << std::endl;
-    std::cout << "PWC configuration: " << pwc_size << " entries, " << pwc_ways << "-way set associative" << std::endl;
-    std::cout << "Physical memory size: " << (phys_mem_size / (1ULL << 30)) << " GB" << std::endl;
-    
-    // Open the trace file in binary mode
-    std::ifstream input(trace_file, std::ios::binary);
-    if (!input) {
-        std::cerr << "Error: Could not open trace file: " << trace_file << std::endl;
-        return 1;
+    // 打印配置
+    void print() const {
+        std::cout << "\nSimulation Configuration:\n"
+                  << "========================\n"
+                  << "Trace File:          " << trace_file << "\n"
+                  << "Physical Memory:     " << phys_mem_gb << " GB\n"
+                  << "L1 TLB:             " << tlb.l1_size << " entries, "
+                  << tlb.l1_ways << "-way\n"
+                  << "L2 TLB:             " << tlb.l2_size << " entries, "
+                  << tlb.l2_ways << "-way\n"
+                  << "PWC:                " << pwc.size << " entries, "
+                  << pwc.ways << "-way\n"
+                  << "L1 Cache:           " << cache.l1_size/1024 << "KB, "
+                  << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
+                  << "L2 Cache:           " << cache.l2_size/1024 << "KB, "
+                  << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
+                  << "L3 Cache:           " << cache.l3_size/(1024*1024) << "MB, "
+                  << cache.l3_ways << "-way, " << cache.l3_line << "B line\n"
+                  << std::endl;
     }
-    
-    // Initialize components
-    PhysicalMemory physicalMemory(phys_mem_size);
-    PageTable pageTable(physicalMemory, dataCache,
-                        l1_tlb_size, l1_tlb_ways, 
-                        l2_tlb_size, l2_tlb_ways, 
-                        pwc_size, pwc_ways);
-    
-    // Track unique pages accessed
-    std::unordered_map<UINT64, size_t> virtual_pages;
-    std::unordered_map<UINT64, size_t> physical_pages;
-    
-    // Counter for progress reporting
-    size_t access_count = 0;
-    size_t data_cache_hits = 0;
-    
-    // Read MEMREF structures from the file
-    MEMREF ref;
-    while (input.read(reinterpret_cast<char*>(&ref), sizeof(MEMREF))) {
-        if (input.gcount() == sizeof(MEMREF)) {
-            access_count++;
-            
-            // Translate virtual address to physical
-            ADDRINT vaddr = ref.ea;
-            ADDRINT paddr = pageTable.translate(vaddr);
-            bool hit = dataCache.access(paddr, ref.read);
-            if (hit) data_cache_hits++;
-            
-            // Track page usage
-            UINT64 virtual_page = vaddr / PAGE_SIZE;
-            UINT64 physical_page = paddr / PAGE_SIZE;
-            virtual_pages[virtual_page]++;
-            physical_pages[physical_page]++;
-            
-            // Progress indicator for large traces
-            if (access_count % 1000000 == 0) {
-                std::cout << "Processed " << access_count / 1000000 << "M memory references\r" << std::flush;
-            }
+};
+SimConfig parse_arguments(int argc, char* argv[]) {
+    SimConfig config;
+
+    // Check for help or insufficient arguments
+    if (argc < 2 || (argc == 2 && std::string(argv[1]) == "--help")) {
+        std::cout << "Usage: " << argv[0] << " <trace_file> [options]\n"
+                  << "Options:\n"
+                  << "  --phys_mem_gb <GB>         Physical memory size (default: 1)\n"
+                  << "  --l1_tlb_size <entries>    L1 TLB size (default: 64)\n"
+                  << "  --l1_tlb_ways <ways>       L1 TLB associativity (default: 4)\n"
+                  << "  --l2_tlb_size <entries>    L2 TLB size (default: 1024)\n"
+                  << "  --l2_tlb_ways <ways>       L2 TLB associativity (default: 8)\n"
+                  << "  --pwc_size <entries>       PWC size (default: 16)\n"
+                  << "  --pwc_ways <ways>          PWC associativity (default: 4)\n"
+                  << "  --l1_cache_size <bytes>    L1 Cache size (default: 32768)\n"
+                  << "  --l1_ways <ways>           L1 Cache associativity (default: 8)\n"
+                  << "  --l1_line <bytes>          L1 Cache line size (default: 64)\n"
+                  << "  --l2_cache_size <bytes>    L2 Cache size (default: 262144)\n"
+                  << "  --l2_ways <ways>           L2 Cache associativity (default: 16)\n"
+                  << "  --l2_line <bytes>          L2 Cache line size (default: 64)\n"
+                  << "  --l3_cache_size <bytes>    L3 Cache size (default: 8388608)\n"
+                  << "  --l3_ways <ways>           L3 Cache associativity (default: 16)\n"
+                  << "  --l3_line <bytes>          L3 Cache line size (default: 64)\n";
+        throw std::invalid_argument(argc < 2 ? "Missing trace file" : "Help requested");
+    }
+
+    config.trace_file = argv[1];
+
+    // Parse flags
+    for (int i = 2; i < argc; i += 2) {
+        if (i + 1 >= argc) {
+            throw std::invalid_argument("Missing value for " + std::string(argv[i]));
+        }
+        std::string flag = argv[i];
+        size_t value;
+        try {
+            value = std::stoul(argv[i + 1]);
+        } catch (...) {
+            throw std::invalid_argument("Invalid value for " + flag);
+        }
+
+        if (flag == "--phys_mem_gb") config.phys_mem_gb = value;
+        else if (flag == "--l1_tlb_size") config.tlb.l1_size = value;
+        else if (flag == "--l1_tlb_ways") config.tlb.l1_ways = value;
+        else if (flag == "--l2_tlb_size") config.tlb.l2_size = value;
+        else if (flag == "--l2_tlb_ways") config.tlb.l2_ways = value;
+        else if (flag == "--pwc_size") config.pwc.size = value;
+        else if (flag == "--pwc_ways") config.pwc.ways = value;
+        else if (flag == "--l1_cache_size") config.cache.l1_size = value;
+        else if (flag == "--l1_ways") config.cache.l1_ways = value;
+        else if (flag == "--l1_line") config.cache.l1_line = value;
+        else if (flag == "--l2_cache_size") config.cache.l2_size = value;
+        else if (flag == "--l2_ways") config.cache.l2_ways = value;
+        else if (flag == "--l2_line") config.cache.l2_line = value;
+        else if (flag == "--l3_cache_size") config.cache.l3_size = value;
+        else if (flag == "--l3_ways") config.cache.l3_ways = value;
+        else if (flag == "--l3_line") config.cache.l3_line = value;
+        else {
+            throw std::invalid_argument("Unknown flag: " + flag);
         }
     }
+
+    return config;
+}
+int main(int argc, char* argv[]) try {
+    SimConfig config = parse_arguments(argc, argv);
+    config.print();
+
+    // 初始化组件
+    PhysicalMemory physical_memory(config.physical_mem_bytes());
+    CacheHierarchy cache_hierarchy(
+        config.cache.l1_size, config.cache.l1_ways, config.cache.l1_line,
+        config.cache.l2_size, config.cache.l2_ways, config.cache.l2_line,
+        config.cache.l3_size, config.cache.l3_ways, config.cache.l3_line
+    );
     
-    std::cout << "\nFinished processing trace file (" << access_count << " accesses)" << std::endl;
-    
-    // Print memory and page table statistics
-    std::cout << "\nMemory Translation Summary:" << std::endl;
-    std::cout << "==========================" << std::endl;
-    std::cout << "L1 TLB hit rate: " << pageTable.getL1TlbHitRate() * 100.0 << "%" << std::endl;
-    std::cout << "L2 TLB hit rate: " << pageTable.getL2TlbHitRate() * 100.0 << "%" << std::endl;
-    std::cout << "Overall TLB efficiency: " << pageTable.getTlbEfficiency() * 100.0 << "%" << std::endl;
-    std::cout << "PMD PWC hit rate: " << pageTable.getPmdCacheHitRate() * 100.0 << "%" << std::endl;
-    std::cout << "PUD PWC hit rate: " << pageTable.getPudCacheHitRate() * 100.0 << "%" << std::endl;
-    std::cout << "PGD PWC hit rate: " << pageTable.getPgdCacheHitRate() * 100.0 << "%" << std::endl;
-    std::cout << "Full page table walks: " << pageTable.getFullWalks() << std::endl;
-    std::cout << "Unique virtual pages: " << virtual_pages.size() << std::endl;
-    std::cout << "Unique physical pages: " << physical_pages.size() << std::endl;
-    std::cout << "Physical memory usage: " 
-              << (physical_pages.size() * PAGE_SIZE) / (1024.0 * 1024.0) << " MB" << std::endl;
-    std::cout << "Data Cache Hit Rate: " << dataCache.getHitRate() * 100.0 << "%" << std::endl;
-    // Print detailed statistics
-    pageTable.printDetailedStats(std::cout);
-    pageTable.printMemoryStats(std::cout);
-    // Print data cache statistics
-    dataCache.printDetailedStats(std::cout);
-    
+    PageTable page_table(
+        physical_memory, cache_hierarchy,
+        config.tlb.l1_size, config.tlb.l1_ways,
+        config.tlb.l2_size, config.tlb.l2_ways,
+        config.pwc.size, config.pwc.ways
+    );
+
+    // 打开trace文件
+    std::ifstream input(config.trace_file, std::ios::binary);
+    if (!input) {
+        throw std::runtime_error("Cannot open trace file: " + config.trace_file);
+    }
+
+    // 处理内存引用
+    std::unordered_map<UINT64, size_t> virtual_pages, physical_pages;
+    size_t access_count = 0;
+    MEMREF ref;
+
+    while (input.read(reinterpret_cast<char*>(&ref), sizeof(MEMREF))) {
+        if (input.gcount() != sizeof(MEMREF)) break;
+
+        access_count++;
+        const ADDRINT vaddr = ref.ea;
+        const ADDRINT paddr = page_table.translate(vaddr);
+
+        // 访问缓存层级
+        UINT64 value = 0;
+        cache_hierarchy.access(paddr, value, ref.read);
+
+        // 统计页面使用
+        virtual_pages[vaddr / PAGE_SIZE]++;
+        physical_pages[paddr / PAGE_SIZE]++;
+
+        // 进度显示
+        if (access_count % 1'000'000 == 0) {
+            std::cout << "Processed " << (access_count / 1'000'000) << "M accesses\r";
+        }
+    }
+
+    // 输出统计结果
+    std::cout << "\n\nSimulation Results:\n"
+              << "==================\n"
+              << "Total accesses:       " << access_count << "\n"
+              << "Unique virtual pages: " << virtual_pages.size() << "\n"
+              << "Unique physical pages:" << physical_pages.size() << "\n"
+              << "Physical memory used: " 
+              << (physical_pages.size() * PAGE_SIZE) / (1024.0 * 1024) 
+              << " MB\n";
+
+    page_table.printDetailedStats(std::cout);
+    page_table.printMemoryStats(std::cout);
+    cache_hierarchy.printStats(std::cout);
+
     return 0;
+}
+catch (const std::exception& e) {
+    std::cerr << "Error: " << e.what() << std::endl;
+    return 1;
 }
