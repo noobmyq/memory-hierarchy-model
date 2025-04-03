@@ -122,7 +122,7 @@ public:
         UINT64 pteEntryAddr = pteAddr + (pteIndex * sizeof(PageTableEntry));
         // first access data cache
         UINT64 pteEntryValue = 0;
-        bool hit = dataCache.access(pteEntryAddr, pteEntryValue, false);
+        bool hit = dataCache.lookup(pteEntryAddr, pteEntryValue);
         PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
         
         // Allocate physical page if not present

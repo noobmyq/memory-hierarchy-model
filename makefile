@@ -4,7 +4,7 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O3
 
 # Source files and target
 SOURCES = main.cpp
-HEADERS = common.h cache.h tlb.h pwc.h physical_memory.h page_table.h
+HEADERS = common.h cache.h tlb.h pwc.h physical_memory.h page_table.h data_cache.h
 TARGET = memory_simulator
 
 # Default target
@@ -29,6 +29,9 @@ run_trace: $(TARGET)
 # Run with specific TLB configurations
 run_tlb_test: $(TARGET)
 	./$(TARGET) $(TRACE_FILE) $(L1_TLB_SIZE) $(L1_TLB_WAYS) $(L2_TLB_SIZE) $(L2_TLB_WAYS)
+
+debug: $(TARGET)
+	$(CXX) $(CXXFLAGS) -g $(SOURCES) -o $(TARGET)_debug
 
 # Phony targets
 .PHONY: all clean run run_trace run_tlb_test
