@@ -1,2 +1,3 @@
 *.out
-memory_simulator
+memory_simulator*
+.vscode
