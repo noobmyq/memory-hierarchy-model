@@ -30,7 +30,7 @@ class PageTable {
     UINT64 cr3;                 // Page table base register (points to PGD)
     PhysicalMemory& physMem;    // Reference to physical memory
     CacheHierarchy& dataCache;  // Reference to data cache
-
+    bool isPteCachable;         // PTE cacheable flag
     // Two-level TLB
     TLB l1Tlb;  // L1 TLB (smaller, faster)
     TLB l2Tlb;  // L2 TLB (larger, slower)
@@ -70,13 +70,15 @@ class PageTable {
 
    public:
     PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache,
-              size_t l1TlbSize = 64, size_t l1TlbWays = 4,
-              size_t l2TlbSize = 1024, size_t l2TlbWays = 8,
-              size_t pgdPwcSize = 16, size_t pgdPwcWays = 4,
-              size_t pudPwcSize = 16, size_t pudPwcWays = 4,
-              size_t pmdPwcSize = 16, size_t pmdPwcWays = 4)
+              bool isPteCachable = true, size_t l1TlbSize = 64,
+              size_t l1TlbWays = 4, size_t l2TlbSize = 1024,
+              size_t l2TlbWays = 8, size_t pgdPwcSize = 16,
+              size_t pgdPwcWays = 4, size_t pudPwcSize = 16,
+              size_t pudPwcWays = 4, size_t pmdPwcSize = 16,
+              size_t pmdPwcWays = 4)
         : physMem(physicalMemory),
           dataCache(dataCache),
+          isPteCachable(isPteCachable),
           l1Tlb("L1 TLB", l1TlbSize, l1TlbWays),
           l2Tlb("L2 TLB", l2TlbSize, l2TlbWays),
           pgdPwc("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, 39, 47),
@@ -129,9 +131,12 @@ class PageTable {
 
         // Access the PTE table
         UINT64 pteEntryAddr = pteAddr + (pteIndex * sizeof(PageTableEntry));
-        // first access data cache
+
+        // Cache lookup for PTE entry (if cacheable)
+        bool hit = false;
         UINT64 pteEntryValue = 0;
-        bool hit = dataCache.lookup(pteEntryAddr, pteEntryValue);
+        if (isPteCachable)
+            hit = dataCache.lookup(pteEntryAddr, pteEntryValue);
         PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
 
         // Allocate physical page if not present
@@ -140,17 +145,23 @@ class PageTable {
             pteEntry.writable = 1;
             pteEntry.pfn = physMem.allocateFrame();
             pteStats.entries++;
+            assert(!hit);
         }
 
+        // Handle memory/cache access
         if (hit) {
-            assert(*((UINT64*)&pteEntry) == pteEntryValue);
             pteDataCacheHits++;
+            assert(*((UINT64*)&pteEntry) == pteEntryValue);
         } else {
-            dataCache.access(pteEntryAddr, *((UINT64*)&pteEntry), true);
-            pteDataCacheMisses++;
+            // Either cache miss or non-cacheable PTE
+            if (isPteCachable) {
+                dataCache.access(pteEntryAddr, *((UINT64*)&pteEntry), true);
+                pteDataCacheMisses++;
+            }
             pageWalkMemAccess++;
             pteStats.accesses++;
         }
+
         // Return physical address
         return (pteEntry.pfn << PAGE_SHIFT) | offset;
     }
@@ -164,7 +175,11 @@ class PageTable {
         UINT64 pmdEntryAddr = pmdAddr + (pmdIndex * sizeof(PageTableEntry));
         // first access data cache
         UINT64 pmdEntryValue = 0;
-        bool hit = dataCache.lookup(pmdEntryAddr, pmdEntryValue);
+        // Cache lookup for PMD entry (if cacheable)
+        bool hit = false;
+        if (isPteCachable)
+            hit = dataCache.lookup(pmdEntryAddr, pmdEntryValue);
+
         PageTableEntry& pmdEntry = pageTables[pmdAddr][pmdIndex];
         // Allocate PTE if not present
         if (!pmdEntry.present) {
@@ -176,13 +191,16 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pteStats.allocations++;
             pmdStats.entries++;
+            assert(!hit);
         }
         if (hit) {
             pteDataCacheHits++;
             assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
         } else {
-            dataCache.access(pmdEntryAddr, *((UINT64*)&pmdEntry), true);
-            pteDataCacheMisses++;
+            if (isPteCachable) {
+                dataCache.access(pmdEntryAddr, *((UINT64*)&pmdEntry), true);
+                pteDataCacheMisses++;
+            }
             pageWalkMemAccess++;
             pmdStats.accesses++;
         }
@@ -203,7 +221,10 @@ class PageTable {
         UINT64 pudEntryAddr = pudAddr + (pudIndex * sizeof(PageTableEntry));
         // first access data cache
         UINT64 pudEntryValue = 0;
-        bool hit = dataCache.lookup(pudEntryAddr, pudEntryValue);
+        bool hit = false;
+        // Cache lookup for PUD entry (if cacheable)
+        if (isPteCachable)
+            hit = dataCache.lookup(pudEntryAddr, pudEntryValue);
         PageTableEntry& pudEntry = pageTables[pudAddr][pudIndex];
         // Allocate PMD if not present
         if (!pudEntry.present) {
@@ -215,14 +236,18 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pmdStats.allocations++;
             pudStats.entries++;
+            assert(!hit);
         }
 
         if (hit) {
             pteDataCacheHits++;
             assert(*((UINT64*)&pudEntry) == pudEntryValue);
         } else {
-            dataCache.access(pudEntryAddr, *((UINT64*)&pudEntry), true);
-            pteDataCacheMisses++;
+            if (isPteCachable) {
+                // Access the data cache
+                dataCache.access(pudEntryAddr, *((UINT64*)&pudEntry), true);
+                pteDataCacheMisses++;
+            }
             pageWalkMemAccess++;
             pudStats.accesses++;
         }
@@ -241,7 +266,10 @@ class PageTable {
         UINT64 pgdAddr = cr3 + (pgdIndex * sizeof(PageTableEntry));
         // first access data cache
         UINT64 pgdEntryValue = 0;
-        bool hit = dataCache.lookup(pgdAddr, pgdEntryValue);
+        bool hit = false;
+        // Cache lookup for PGD entry (if cacheable)
+        if (isPteCachable)
+            hit = dataCache.lookup(pgdAddr, pgdEntryValue);
         PageTableEntry& pgdEntry = pageTables[cr3][pgdIndex];
         // Allocate PUD if not present
         if (!pgdEntry.present) {
@@ -253,15 +281,19 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
             pudStats.allocations++;
             pgdStats.entries++;
+            assert(!hit);
         }
         if (hit) {
             pteDataCacheHits++;
             assert(*((UINT64*)&pgdEntry) == pgdEntryValue);
         } else {
-            pteDataCacheMisses++;
+            if (isPteCachable) {
+                // Access the data cache
+                dataCache.access(pgdAddr, *((UINT64*)&pgdEntry), true);
+                pteDataCacheMisses++;
+            }
             pageWalkMemAccess++;
             pgdStats.accesses++;
-            dataCache.access(pgdAddr, *((UINT64*)&pgdEntry), true);
         }
 
         // Insert into PGD PWC
@@ -502,7 +534,7 @@ class PageTable {
     }
 
     void printMemoryStats(std::ostream& os) const {
-        os << "\nMemory Access Statistics (from Page Table):\n";
+        os << "\nCache Access Statistics (from Page Table):\n";
         os << "=========================================\n";
         os << std::left << std::setw(35) << "Page Table Entry data Cache Hits"
            << std::right << std::setw(10) << pteDataCacheHits << "\n";
@@ -510,6 +542,13 @@ class PageTable {
            << std::right << std::setw(10) << pteDataCacheMisses << "\n";
         os << std::left << std::setw(35) << "Page Walk Memory Accesses"
            << std::right << std::setw(10) << pageWalkMemAccess << "\n";
+        os << std::left << std::setw(35) << "Page Table Entry Cache hits ratio"
+           << std::right << std::setw(10)
+           << (pteDataCacheHits + pteDataCacheMisses > 0
+                   ? (double)pteDataCacheHits /
+                         (pteDataCacheHits + pteDataCacheMisses) * 100.0
+                   : 0.0)
+           << "%\n";
     }
 
    private:

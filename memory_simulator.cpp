@@ -40,6 +40,7 @@ struct SimConfig {
         size_t l3_line = 64;
     } cache;
 
+    bool pte_cachable = true;
     UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }
 
     void print() const {
@@ -63,6 +64,7 @@ struct SimConfig {
              << "L3 Cache:           " << cache.l3_size / (1024 * 1024)
              << "MB, " << cache.l3_ways << "-way, " << cache.l3_line
              << "B line\n"
+             << "PTE Cacheable:      " << (pte_cachable ? "true" : "false")
              << endl;
     }
 };
@@ -77,11 +79,12 @@ class Simulator {
               config.cache.l1_size, config.cache.l1_ways, config.cache.l1_line,
               config.cache.l2_size, config.cache.l2_ways, config.cache.l2_line,
               config.cache.l3_size, config.cache.l3_ways, config.cache.l3_line),
-          page_table_(
-              physical_memory_, cache_hierarchy_, config.tlb.l1_size,
-              config.tlb.l1_ways, config.tlb.l2_size, config.tlb.l2_ways,
-              config.pwc.pgdSize, config.pwc.pgdWays, config.pwc.pudSize,
-              config.pwc.pudWays, config.pwc.pmdSize, config.pwc.pmdWays) {}
+          page_table_(physical_memory_, cache_hierarchy_, config.pte_cachable,
+                      config.tlb.l1_size, config.tlb.l1_ways,
+                      config.tlb.l2_size, config.tlb.l2_ways,
+                      config.pwc.pgdSize, config.pwc.pgdWays,
+                      config.pwc.pudSize, config.pwc.pudWays,
+                      config.pwc.pmdSize, config.pwc.pmdWays) {}
 
     void process_batch(const MEMREF* buffer, size_t numElements) {
         for (size_t i = 0; i < numElements; ++i) {
@@ -173,6 +176,8 @@ KNOB<size_t> KnobL3Ways(KNOB_MODE_WRITEONCE, "pintool", "l3_ways", "16",
                         "L3 Cache associativity");
 KNOB<size_t> KnobL3Line(KNOB_MODE_WRITEONCE, "pintool", "l3_line", "64",
                         "L3 Cache line size");
+KNOB<bool> KnobPteCachable(KNOB_MODE_WRITEONCE, "pintool", "pte_cachable", "1",
+                           "PTE cacheable flag");
 
 // --- Pin Instrumentation ---
 VOID Trace(TRACE trace, VOID* v) {
@@ -248,6 +253,7 @@ int main(int argc, char* argv[]) {
     config.cache.l3_size = KnobL3CacheSize.Value();
     config.cache.l3_ways = KnobL3Ways.Value();
     config.cache.l3_line = KnobL3Line.Value();
+    config.pte_cachable = KnobPteCachable.Value();
 
     config.print();
 
