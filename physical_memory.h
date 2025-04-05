@@ -26,7 +26,8 @@ class PhysicalMemory {
         if (nextFrame >= frameAllocated.size()) {
             // // No free frames available
             // throw std::runtime_error("Physical memory exhausted");
-            std::cerr << "Error: Physical memory exhausted. No more frames available.\n";
+            std::cerr << "Error: Physical memory exhausted. No more frames "
+                         "available.\n";
             exit(1);
         }
         frameAllocated[nextFrame] = true;

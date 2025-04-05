@@ -72,14 +72,16 @@ class PageTable {
     PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache,
               size_t l1TlbSize = 64, size_t l1TlbWays = 4,
               size_t l2TlbSize = 1024, size_t l2TlbWays = 8,
-              size_t pwcSize = 16, size_t pwcWays = 4)
+              size_t pgdPwcSize = 16, size_t pgdPwcWays = 4,
+              size_t pudPwcSize = 16, size_t pudPwcWays = 4,
+              size_t pmdPwcSize = 16, size_t pmdPwcWays = 4)
         : physMem(physicalMemory),
           dataCache(dataCache),
           l1Tlb("L1 TLB", l1TlbSize, l1TlbWays),
           l2Tlb("L2 TLB", l2TlbSize, l2TlbWays),
-          pgdPwc("PML4E Cache (PGD)", pwcSize, pwcWays, 39, 47),
-          pudPwc("PDPTE Cache (PUD)", pwcSize, pwcWays, 30, 47),
-          pmdPwc("PDE Cache (PMD)", pwcSize, pwcWays, 21, 47),
+          pgdPwc("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, 39, 47),
+          pudPwc("PDPTE Cache (PUD)", pudPwcSize, pudPwcWays, 30, 47),
+          pmdPwc("PDE Cache (PMD)", pmdPwcSize, pmdPwcWays, 21, 47),
           l1TlbHits(0),
           l2TlbHits(0),
           pmdCacheHits(0),
@@ -495,8 +497,8 @@ class PageTable {
 
         os << "\nTotal page tables: " << pageTables.size() << std::endl;
         os << "Total memory for page tables: "
-           << (pageTables.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024.0) << " MB"
-           << std::endl;
+           << (pageTables.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024.0)
+           << " MB" << std::endl;
     }
 
     void printMemoryStats(std::ostream& os) const {

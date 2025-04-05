@@ -9,11 +9,12 @@ typedef uint32_t UINT32;
 typedef uint64_t UINT64;
 
 // Constants for page table
-constexpr UINT64 MEMTRACE_PAGE_SIZE = 4096;           // 4KB pages
+constexpr UINT64 MEMTRACE_PAGE_SIZE = 4096;  // 4KB pages
 constexpr UINT32 PAGE_SHIFT = 12;            // log2(MEMTRACE_PAGE_SIZE)
-constexpr UINT64 PAGE_MASK = MEMTRACE_PAGE_SIZE - 1;  // Mask for offset within page
-constexpr UINT32 PTE_ENTRIES = 512;          // Number of entries per page table
-constexpr UINT32 PTE_SHIFT = 9;              // log2(PTE_ENTRIES)
+constexpr UINT64 PAGE_MASK =
+    MEMTRACE_PAGE_SIZE - 1;          // Mask for offset within page
+constexpr UINT32 PTE_ENTRIES = 512;  // Number of entries per page table
+constexpr UINT32 PTE_SHIFT = 9;      // log2(PTE_ENTRIES)
 constexpr UINT32 PTE_MASK =
     PTE_ENTRIES - 1;  // Mask for index within page table
 constexpr UINT64 PHYSICAL_MEMORY_SIZE = 1ULL << 40;  // 1TB physical memory
