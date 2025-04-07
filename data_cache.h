@@ -109,83 +109,137 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     }
 };
 
-class CacheHierarchy {
+class ModifiedCacheHierarchy {
    private:
-    DataCache l1Cache;
-    DataCache l2Cache;
-    DataCache l3Cache;
+    DataCache l1iCache;  // L1 Instruction Cache
+    DataCache l1dCache;  // L1 Data Cache
+    DataCache l2Cache;   // Shared L2 Cache
+    DataCache l3Cache;   // Shared L3 Cache
     size_t memAccessCount;
+    bool separateL1I;  // Flag to indicate if we're using separate I-cache
 
    public:
-    CacheHierarchy(size_t l1Size, size_t l1Ways, size_t l1Line, size_t l2Size,
-                   size_t l2Ways, size_t l2Line, size_t l3Size, size_t l3Ways,
-                   size_t l3Line)
-        : l1Cache("L1 Cache", l1Size, l1Ways, l1Line),
-          l2Cache("L2 Cache", l2Size, l2Ways, l2Line),
-          l3Cache("L3 Cache", l3Size, l3Ways, l3Line),
-          memAccessCount(0) {}
+    ModifiedCacheHierarchy(size_t l1Size, size_t l1Ways, size_t l1Line,
+                           size_t l2Size, size_t l2Ways, size_t l2Line,
+                           size_t l3Size, size_t l3Ways, size_t l3Line,
+                           bool useSeparateL1I = true)
+        : l1iCache("L1 Instruction Cache", l1Size, l1Ways, l1Line),
+          l1dCache("L1 Data Cache", l1Size, l1Ways, l1Line),
+          l2Cache("L2 Cache (Unified)", l2Size, l2Ways, l2Line),
+          l3Cache("L3 Cache (Unified)", l3Size, l3Ways, l3Line),
+          memAccessCount(0),
+          separateL1I(useSeparateL1I) {}
 
-    bool lookup(ADDRINT paddr, UINT64& value) {
-        // L1访问
-        if (l1Cache.lookup(paddr, value))
+    // Instruction cache access
+    bool instructionAccess(ADDRINT paddr, UINT64& value) {
+        if (!separateL1I) {
+            // If not using separate I-cache, use data cache hierarchy
+            return access(paddr, value, true);  // Instruction reads
+        }
+
+        // L1I access
+        if (l1iCache.access(paddr, value,
+                            true))  // Instructions are always reads
             return true;
 
-        // L2访问
-        if (l2Cache.lookup(paddr, value)) {
-            l1Cache.insert(paddr, value);  // 填充L1
+        // L1I miss, try L2 (shared)
+        if (l2Cache.access(paddr, value, true)) {
+            l1iCache.insert(paddr, value);  // Fill L1I cache
             return true;
         }
 
-        // L3访问
-        if (l3Cache.lookup(paddr, value)) {
-            l1Cache.insert(paddr, value);  // 填充L1
-            l2Cache.insert(paddr, value);  // 填充L2
+        // L2 miss, try L3 (shared)
+        if (l3Cache.access(paddr, value, true)) {
+            l1iCache.insert(paddr, value);  // Fill L1I cache
+            l2Cache.insert(paddr, value);   // Fill L2 cache
             return true;
         }
 
-        return false;  // 所有缓存未命中
+        // All caches missed
+        memAccessCount++;
+        l1iCache.insert(paddr, value);  // Fill L1I cache
+        l2Cache.insert(paddr, value);   // Fill L2 cache
+        l3Cache.insert(paddr, value);   // Fill L3 cache
+        return false;
     }
 
-    // 统一访问接口
-    bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
-        // L1访问
-        if (l1Cache.access(paddr, value, isWrite))
+    // Data cache access (original cache access logic)
+    bool access(ADDRINT paddr, UINT64& value, bool isRead) {
+        // L1D access
+        if (l1dCache.access(paddr, value, isRead))
             return true;
 
-        // L2访问
-        if (l2Cache.access(paddr, value, isWrite)) {
-
-            l1Cache.insert(paddr, value);  // 填充L1
-            return true;
-        }
-
-        // L3访问
-        if (l3Cache.access(paddr, value, isWrite)) {
-            l1Cache.insert(paddr, value);  // 填充L1
-            l2Cache.insert(paddr, value);  // 填充L2
+        // L2 access (shared between L1I and L1D)
+        if (l2Cache.access(paddr, value, isRead)) {
+            l1dCache.insert(paddr, value);  // Fill L1D cache
             return true;
         }
 
-        // 所有缓存未命中
+        // L3 access (shared)
+        if (l3Cache.access(paddr, value, isRead)) {
+            l1dCache.insert(paddr, value);  // Fill L1D cache
+            l2Cache.insert(paddr, value);   // Fill L2 cache
+            return true;
+        }
+
+        // All caches missed
         memAccessCount++;
-        l1Cache.insert(paddr, value);  // 填充L1
-        l2Cache.insert(paddr, value);  // 填充L2
-        l3Cache.insert(paddr, value);  // 填充L3
+        l1dCache.insert(paddr, value);  // Fill L1D cache
+        l2Cache.insert(paddr, value);   // Fill L2 cache
+        l3Cache.insert(paddr, value);   // Fill L3 cache
         return false;
+    }
+
+    // Lookup function
+    bool lookup(ADDRINT paddr, UINT64& value) {
+        // Try L1 data cache
+        if (l1dCache.lookup(paddr, value))
+            return true;
+
+        // L2 lookup (shared)
+        if (l2Cache.lookup(paddr, value)) {
+            l1dCache.insert(paddr, value);  // Fill L1D
+            return true;
+        }
+
+        // L3 lookup (shared)
+        if (l3Cache.lookup(paddr, value)) {
+            l1dCache.insert(paddr, value);  // Fill L1D
+            l2Cache.insert(paddr, value);   // Fill L2
+            return true;
+        }
+
+        return false;  // All caches missed
     }
 
     void printStats(std::ostream& os) const {
         os << "\n=== Cache Hierarchy Statistics ===\n";
-        printCacheStats(os, l1Cache);
+
+        // Print instruction cache stats if separate
+        if (separateL1I) {
+            printCacheStats(os, l1iCache);
+        }
+
+        // Print data and unified cache stats
+        printCacheStats(os, l1dCache);
         printCacheStats(os, l2Cache);
         printCacheStats(os, l3Cache);
+
         os << "Memory Accesses: " << memAccessCount << "\n";
-        os << "Total Access Cost (cycles): "
-           << l1Cache.getAccesses() * 1 +       // L1访问周期
-                  l2Cache.getAccesses() * 4 +   // L2访问周期
-                  l3Cache.getAccesses() * 10 +  // L3访问周期
-                  memAccessCount * 100          // 内存访问周期
-           << "\n";
+
+        // Calculate total access cost
+        UINT64 totalCost = 0;
+
+        if (separateL1I) {
+            totalCost += l1iCache.getAccesses() * 1;  // L1I access cycles
+        }
+
+        totalCost += l1dCache.getAccesses() * 1 +  // L1D access cycles
+                     l2Cache.getAccesses() * 4 +   // L2 access cycles
+                     l3Cache.getAccesses() * 10 +  // L3 access cycles
+                     memAccessCount * 100;         // Memory access cycles
+
+        os << "Total Access Cost (cycles): " << totalCost << "\n";
     }
 
    private:

@@ -27,10 +27,10 @@ struct PageTableEntry {
 class PageTable {
    private:
     std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables;
-    UINT64 cr3;                 // Page table base register (points to PGD)
-    PhysicalMemory& physMem;    // Reference to physical memory
-    CacheHierarchy& dataCache;  // Reference to data cache
-    bool isPteCachable;         // PTE cacheable flag
+    UINT64 cr3;               // Page table base register (points to PGD)
+    PhysicalMemory& physMem;  // Reference to physical memory
+    ModifiedCacheHierarchy& dataCache;  // Reference to data cache
+    bool isPteCachable;                 // PTE cacheable flag
     // Two-level TLB
     TLB l1Tlb;  // L1 TLB (smaller, faster)
     TLB l2Tlb;  // L2 TLB (larger, slower)
@@ -69,7 +69,7 @@ class PageTable {
     PageTableLevelStats pteStats;
 
    public:
-    PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache,
+    PageTable(PhysicalMemory& physicalMemory, ModifiedCacheHierarchy& dataCache,
               bool isPteCachable = true, size_t l1TlbSize = 64,
               size_t l1TlbWays = 4, size_t l2TlbSize = 1024,
               size_t l2TlbWays = 8, size_t pgdPwcSize = 16,

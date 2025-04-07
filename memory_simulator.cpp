@@ -38,9 +38,11 @@ struct SimConfig {
         size_t l3_size = 8 * 1024 * 1024;  // 8MB
         size_t l3_ways = 16;
         size_t l3_line = 64;
+        bool separate_l1i = true;  // Separate L1I cache flag
     } cache;
 
     bool pte_cachable = true;
+    bool trace_instructions = true;  // Flag to control instruction tracing
     UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }
 
     void print() const {
@@ -57,13 +59,23 @@ struct SimConfig {
              << pwc.pudWays << "-way\n"
              << "Page Walk Cache (PMD): " << pwc.pmdSize << " entries, "
              << pwc.pmdWays << "-way\n"
-             << "L1 Cache:           " << cache.l1_size / 1024 << "KB, "
-             << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
-             << "L2 Cache:           " << cache.l2_size / 1024 << "KB, "
+             << "L1 Data Cache:      " << cache.l1_size / 1024 << "KB, "
+             << cache.l1_ways << "-way, " << cache.l1_line << "B line\n";
+
+        if (cache.separate_l1i) {
+            cout << "L1 Instr Cache:     " << cache.l1_size / 1024 << "KB, "
+                 << cache.l1_ways << "-way, " << cache.l1_line << "B line\n";
+        }
+
+        cout << "L2 Cache (Unified): " << cache.l2_size / 1024 << "KB, "
              << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
-             << "L3 Cache:           " << cache.l3_size / (1024 * 1024)
+             << "L3 Cache (Unified): " << cache.l3_size / (1024 * 1024)
              << "MB, " << cache.l3_ways << "-way, " << cache.l3_line
              << "B line\n"
+             << "Separate L1I Cache: "
+             << (cache.separate_l1i ? "true" : "false") << "\n"
+             << "Trace Instructions: "
+             << (trace_instructions ? "true" : "false") << "\n"
              << "PTE Cacheable:      " << (pte_cachable ? "true" : "false")
              << endl;
     }
@@ -75,10 +87,12 @@ class Simulator {
     Simulator(const SimConfig& config)
         : config_(config),
           physical_memory_(config.physical_mem_bytes()),
-          cache_hierarchy_(
-              config.cache.l1_size, config.cache.l1_ways, config.cache.l1_line,
-              config.cache.l2_size, config.cache.l2_ways, config.cache.l2_line,
-              config.cache.l3_size, config.cache.l3_ways, config.cache.l3_line),
+          // Use the modified cache hierarchy
+          cache_hierarchy_(config.cache.l1_size, config.cache.l1_ways,
+                           config.cache.l1_line, config.cache.l2_size,
+                           config.cache.l2_ways, config.cache.l2_line,
+                           config.cache.l3_size, config.cache.l3_ways,
+                           config.cache.l3_line, config.cache.separate_l1i),
           page_table_(physical_memory_, cache_hierarchy_, config.pte_cachable,
                       config.tlb.l1_size, config.tlb.l1_ways,
                       config.tlb.l2_size, config.tlb.l2_ways,
@@ -86,49 +100,148 @@ class Simulator {
                       config.pwc.pudSize, config.pwc.pudWays,
                       config.pwc.pmdSize, config.pwc.pmdWays) {}
 
+    // Getter for trace_instructions flag
+    bool getTraceInstructions() const { return config_.trace_instructions; }
+
     void process_batch(const MEMREF* buffer, size_t numElements) {
         for (size_t i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
-            access_count_++;
-            const ADDRINT vaddr = ref.ea;
-            const ADDRINT paddr = page_table_.translate(vaddr);
-            UINT64 value = 0;
-            cache_hierarchy_.access(paddr, value, ref.read);
 
-            UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
-            UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
-            virtual_pages_[vpn]++;
-            physical_pages_[ppn]++;
+            if (config_.trace_instructions) {
+                // Process instruction fetch (instruction translation) only if tracing is enabled
+                const ADDRINT instr_vaddr = ref.pc;
+                instr_access_count_++;
 
-            if (access_count_ % 10000000 == 0) {
-                cout << "Processed " << (access_count_ / 10000000)
-                     << "*10M accesses\r" << std::flush;
+                // Translate instruction address through TLB
+                const ADDRINT instr_paddr = page_table_.translate(instr_vaddr);
+
+                // Access instruction cache
+                UINT64 dummy = 0;
+                cache_hierarchy_.instructionAccess(instr_paddr, dummy);
+
+                // Track instruction virtual and physical pages
+                UINT64 instr_vpn = instr_vaddr / MEMTRACE_PAGE_SIZE;
+                UINT64 instr_ppn = instr_paddr / MEMTRACE_PAGE_SIZE;
+                instr_virtual_pages_[instr_vpn]++;
+                instr_physical_pages_[instr_ppn]++;
+            }
+
+            // Process data memory access if it exists (both modes)
+            if (ref.ea != 0) {  // Check if this is a memory operation
+                data_access_count_++;
+                const ADDRINT data_vaddr = ref.ea;
+                const ADDRINT data_paddr = page_table_.translate(data_vaddr);
+                UINT64 value = 0;
+                cache_hierarchy_.access(data_paddr, value, ref.read);
+
+                // Track data virtual and physical pages
+                UINT64 data_vpn = data_vaddr / MEMTRACE_PAGE_SIZE;
+                UINT64 data_ppn = data_paddr / MEMTRACE_PAGE_SIZE;
+                data_virtual_pages_[data_vpn]++;
+                data_physical_pages_[data_ppn]++;
+            }
+
+            if (config_.trace_instructions) {
+                if ((instr_access_count_ + data_access_count_) % 10000000 ==
+                    0) {
+                    cout << "Processed "
+                         << ((instr_access_count_ + data_access_count_) /
+                             10000000)
+                         << "*10M accesses\r" << std::flush;
+                }
+            } else {
+                if (data_access_count_ % 10000000 == 0) {
+                    cout << "Processed " << (data_access_count_ / 10000000)
+                         << "*10M accesses\r" << std::flush;
+                }
             }
         }
     }
 
     void print_stats() {
-        cout << "\n\nSimulation Results:\n"
-             << "==================\n"
-             << "Total accesses:       " << access_count_ << "\n"
-             << "Unique virtual pages: " << virtual_pages_.size() << "\n"
-             << "Unique physical pages:" << physical_pages_.size() << "\n"
-             << "Physical memory used: "
-             << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
-             << " MB\n";
+        if (config_.trace_instructions) {
+            // Print detailed stats with instruction info when instruction tracing is enabled
+            cout << "\n\nSimulation Results:\n"
+                 << "==================\n"
+                 << "Total instruction accesses: " << instr_access_count_
+                 << "\n"
+                 << "Total data accesses:       " << data_access_count_ << "\n"
+                 << "Total accesses:            "
+                 << (instr_access_count_ + data_access_count_) << "\n"
+                 << "Unique instruction virtual pages: "
+                 << instr_virtual_pages_.size() << "\n"
+                 << "Unique instruction physical pages: "
+                 << instr_physical_pages_.size() << "\n"
+                 << "Unique data virtual pages: " << data_virtual_pages_.size()
+                 << "\n"
+                 << "Unique data physical pages: "
+                 << data_physical_pages_.size() << "\n"
+                 << "Total unique virtual pages: "
+                 << (instr_virtual_pages_.size() + data_virtual_pages_.size() -
+                     count_common_pages(instr_virtual_pages_,
+                                        data_virtual_pages_))
+                 << "\n"
+                 << "Total unique physical pages: "
+                 << (instr_physical_pages_.size() +
+                     data_physical_pages_.size() -
+                     count_common_pages(instr_physical_pages_,
+                                        data_physical_pages_))
+                 << "\n"
+                 << "Physical memory used: "
+                 << (instr_physical_pages_.size() * MEMTRACE_PAGE_SIZE) /
+                        (1024.0 * 1024)
+                 << " MB (instructions) + "
+                 << (data_physical_pages_.size() * MEMTRACE_PAGE_SIZE) /
+                        (1024.0 * 1024)
+                 << " MB (data)\n";
+        } else {
+            // Original stats format when instruction tracing is disabled
+            cout << "\n\nSimulation Results:\n"
+                 << "==================\n"
+                 << "Total accesses:       " << data_access_count_ << "\n"
+                 << "Unique virtual pages: " << data_virtual_pages_.size()
+                 << "\n"
+                 << "Unique physical pages:" << data_physical_pages_.size()
+                 << "\n"
+                 << "Physical memory used: "
+                 << (data_physical_pages_.size() * MEMTRACE_PAGE_SIZE) /
+                        (1024.0 * 1024)
+                 << " MB\n";
+        }
+
         page_table_.printDetailedStats(cout);
         page_table_.printMemoryStats(cout);
+
+        // Print cache hierarchy stats
         cache_hierarchy_.printStats(cout);
     }
 
    private:
+    // Helper function to count common pages between two maps
+    size_t count_common_pages(const std::unordered_map<UINT64, size_t>& map1,
+                              const std::unordered_map<UINT64, size_t>& map2) {
+        size_t common = 0;
+        for (const auto& pair : map1) {
+            if (map2.find(pair.first) != map2.end()) {
+                common++;
+            }
+        }
+        return common;
+    }
+
     SimConfig config_;
     PhysicalMemory physical_memory_;
-    CacheHierarchy cache_hierarchy_;
+    ModifiedCacheHierarchy
+        cache_hierarchy_;  // Using the modified cache hierarchy
     PageTable page_table_;
-    size_t access_count_ = 0;
-    std::unordered_map<UINT64, size_t> virtual_pages_;
-    std::unordered_map<UINT64, size_t> physical_pages_;
+
+    // Separate tracking for instruction and data accesses
+    size_t instr_access_count_ = 0;
+    size_t data_access_count_ = 0;
+    std::unordered_map<UINT64, size_t> instr_virtual_pages_;
+    std::unordered_map<UINT64, size_t> instr_physical_pages_;
+    std::unordered_map<UINT64, size_t> data_virtual_pages_;
+    std::unordered_map<UINT64, size_t> data_physical_pages_;
 };
 
 // --- Pin Configuration ---
@@ -178,25 +291,82 @@ KNOB<size_t> KnobL3Line(KNOB_MODE_WRITEONCE, "pintool", "l3_line", "64",
                         "L3 Cache line size");
 KNOB<bool> KnobPteCachable(KNOB_MODE_WRITEONCE, "pintool", "pte_cachable", "1",
                            "PTE cacheable flag");
+KNOB<bool> KnobSeparateL1I(KNOB_MODE_WRITEONCE, "pintool", "separate_l1i", "1",
+                           "Use separate L1 instruction cache");
+KNOB<bool> KnobTraceInstructions(KNOB_MODE_WRITEONCE, "pintool",
+                                 "trace_instructions", "1",
+                                 "Enable instruction translation and tracing");
 
 // --- Pin Instrumentation ---
 VOID Trace(TRACE trace, VOID* v) {
+    Simulator* simulator = static_cast<Simulator*>(v);
+    bool trace_instructions = simulator->getTraceInstructions();
+
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
-            if (!INS_IsStandardMemop(ins))
-                continue;
-            UINT32 memOps = INS_MemoryOperandCount(ins);
-            for (UINT32 memOp = 0; memOp < memOps; memOp++) {
-                if (INS_MemoryOperandIsRead(ins, memOp) ||
-                    INS_MemoryOperandIsWritten(ins, memOp)) {
+            if (trace_instructions) {
+                // When instruction tracing is enabled
+
+                // Always instrument each instruction, even if it has no memory operands
+                // This ensures we record the instruction fetch
+                if (!INS_IsStandardMemop(ins)) {
+                    // Non-standard memory operation, still record the instruction fetch
                     INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
                                          IARG_INST_PTR, offsetof(MEMREF, pc),
-                                         IARG_MEMORYOP_EA, memOp,
+                                         IARG_ADDRINT, 0,  // no memory access
                                          offsetof(MEMREF, ea), IARG_UINT32,
-                                         INS_MemoryOperandSize(ins, memOp),
+                                         0,  // size 0 for non-memory
                                          offsetof(MEMREF, size), IARG_BOOL,
-                                         INS_MemoryOperandIsRead(ins, memOp),
+                                         true,  // treat as read
                                          offsetof(MEMREF, read), IARG_END);
+                    continue;
+                }
+
+                UINT32 memOps = INS_MemoryOperandCount(ins);
+                if (memOps == 0) {
+                    // Instruction with no memory operands, just record the instruction fetch
+                    INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
+                                         IARG_INST_PTR, offsetof(MEMREF, pc),
+                                         IARG_ADDRINT, 0,  // no memory access
+                                         offsetof(MEMREF, ea), IARG_UINT32,
+                                         0,  // size 0 for non-memory
+                                         offsetof(MEMREF, size), IARG_BOOL,
+                                         true,  // treat as read
+                                         offsetof(MEMREF, read), IARG_END);
+                } else {
+                    // Instruction with memory operands - record both instruction and each memory op
+                    for (UINT32 memOp = 0; memOp < memOps; memOp++) {
+                        if (INS_MemoryOperandIsRead(ins, memOp) ||
+                            INS_MemoryOperandIsWritten(ins, memOp)) {
+                            INS_InsertFillBuffer(
+                                ins, IPOINT_BEFORE, bufId, IARG_INST_PTR,
+                                offsetof(MEMREF, pc), IARG_MEMORYOP_EA, memOp,
+                                offsetof(MEMREF, ea), IARG_UINT32,
+                                INS_MemoryOperandSize(ins, memOp),
+                                offsetof(MEMREF, size), IARG_BOOL,
+                                INS_MemoryOperandIsRead(ins, memOp),
+                                offsetof(MEMREF, read), IARG_END);
+                        }
+                    }
+                }
+            } else {
+                // When instruction tracing is disabled - original behavior, only trace memory ops
+                if (!INS_IsStandardMemop(ins))
+                    continue;
+
+                UINT32 memOps = INS_MemoryOperandCount(ins);
+                for (UINT32 memOp = 0; memOp < memOps; memOp++) {
+                    if (INS_MemoryOperandIsRead(ins, memOp) ||
+                        INS_MemoryOperandIsWritten(ins, memOp)) {
+                        INS_InsertFillBuffer(
+                            ins, IPOINT_BEFORE, bufId, IARG_INST_PTR,
+                            offsetof(MEMREF, pc), IARG_MEMORYOP_EA, memOp,
+                            offsetof(MEMREF, ea), IARG_UINT32,
+                            INS_MemoryOperandSize(ins, memOp),
+                            offsetof(MEMREF, size), IARG_BOOL,
+                            INS_MemoryOperandIsRead(ins, memOp),
+                            offsetof(MEMREF, read), IARG_END);
+                    }
                 }
             }
         }
@@ -253,7 +423,9 @@ int main(int argc, char* argv[]) {
     config.cache.l3_size = KnobL3CacheSize.Value();
     config.cache.l3_ways = KnobL3Ways.Value();
     config.cache.l3_line = KnobL3Line.Value();
+    config.cache.separate_l1i = KnobSeparateL1I.Value();
     config.pte_cachable = KnobPteCachable.Value();
+    config.trace_instructions = KnobTraceInstructions.Value();
 
     config.print();
 
@@ -269,7 +441,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Register instrumentation and fini functions
-    TRACE_AddInstrumentFunction(Trace, 0);
+    TRACE_AddInstrumentFunction(Trace, simulator);
     PIN_AddFiniFunction(Fini, simulator);
 
     // Start the program
