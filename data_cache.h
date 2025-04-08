@@ -49,7 +49,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
         bool hit = lookup(paddr, value);
 
-        // 更新详细统计
+        // Update detailed statistics
         if (isWrite) {
             writeAccesses++;
             if (hit)
@@ -60,7 +60,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
                 readHits++;
         }
 
-        // 未命中类型分析
+        // Analyze miss types
         if (!hit) {
             if (globalLruCounter < numSets * numWays)
                 coldMisses++;
@@ -70,13 +70,13 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
                 conflictMisses++;
         }
 
-        // 插入新条目
+        // Insert new entry
         if (!hit)
             insert(paddr, value);
         return hit;
     }
 
-    // 新增统计方法
+    // New statistics methods
     double getReadHitRate() const {
         return readAccesses ? (double)readHits / readAccesses : 0;
     }
@@ -166,12 +166,22 @@ class ModifiedCacheHierarchy {
     // Data cache access (original cache access logic)
     bool access(ADDRINT paddr, UINT64& value, bool isRead) {
         // L1D access
-        if (l1dCache.access(paddr, value, isRead))
+        if (l1dCache.access(paddr, value, isRead)) {
+            if (isRead) {
+                // Read through
+                l2Cache.access(paddr, value, isRead);
+                l3Cache.access(paddr, value, isRead);
+            }
             return true;
+        }
 
         // L2 access (shared between L1I and L1D)
         if (l2Cache.access(paddr, value, isRead)) {
             l1dCache.insert(paddr, value);  // Fill L1D cache
+            if (!isRead) {
+                // Write through
+                l3Cache.access(paddr, value, isRead);
+            }
             return true;
         }
 
@@ -250,6 +260,9 @@ class ModifiedCacheHierarchy {
            << "Hit Rate: " << std::fixed << std::setprecision(2)
            << cache.getHitRate() * 100 << "%\n"
            << "Accesses: " << cache.getAccesses() << "\n"
-           << "Misses: " << cache.getAccesses() - cache.getHits() << "\n\n";
+           << "Misses: " << cache.getAccesses() - cache.getHits() << "\n";
+        cache.printDetailedStats(os);
+        os << "---------------------------------\n";
+        os << std::endl;
     }
 };
