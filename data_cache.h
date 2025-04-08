@@ -49,7 +49,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
         bool hit = lookup(paddr, value);
 
-        // 更新详细统计
+        // Update detailed statistics
         if (isWrite) {
             writeAccesses++;
             if (hit)
@@ -60,7 +60,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
                 readHits++;
         }
 
-        // 未命中类型分析
+        // Analyze miss types
         if (!hit) {
             if (globalLruCounter < numSets * numWays)
                 coldMisses++;
@@ -70,13 +70,13 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
                 conflictMisses++;
         }
 
-        // 插入新条目
+        // Insert new entry
         if (!hit)
             insert(paddr, value);
         return hit;
     }
 
-    // 新增统计方法
+    // New statistics methods
     double getReadHitRate() const {
         return readAccesses ? (double)readHits / readAccesses : 0;
     }
@@ -126,51 +126,60 @@ class CacheHierarchy {
           memAccessCount(0) {}
 
     bool lookup(ADDRINT paddr, UINT64& value) {
-        // L1访问
+        // L1 access
         if (l1Cache.lookup(paddr, value))
             return true;
 
-        // L2访问
+        // L2 access
         if (l2Cache.lookup(paddr, value)) {
-            l1Cache.insert(paddr, value);  // 填充L1
+            l1Cache.insert(paddr, value);  // Fill L1
             return true;
         }
 
-        // L3访问
+        // L3 access
         if (l3Cache.lookup(paddr, value)) {
-            l1Cache.insert(paddr, value);  // 填充L1
-            l2Cache.insert(paddr, value);  // 填充L2
+            l1Cache.insert(paddr, value);  // Fill L1
+            l2Cache.insert(paddr, value);  // Fill L2
             return true;
         }
 
-        return false;  // 所有缓存未命中
+        return false;  // Miss in all caches
     }
 
-    // 统一访问接口
+    // Unified access interface
     bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
-        // L1访问
-        if (l1Cache.access(paddr, value, isWrite))
+        // L1 access
+        if (l1Cache.access(paddr, value, isWrite)) {
+            if (isWrite) {
+                // Write through
+                l2Cache.access(paddr, value, isWrite);
+                l3Cache.access(paddr, value, isWrite);
+            }
             return true;
+        }
 
-        // L2访问
+        // L2 access
         if (l2Cache.access(paddr, value, isWrite)) {
-
-            l1Cache.insert(paddr, value);  // 填充L1
+            l1Cache.insert(paddr, value);  // Fill L1
+            if (isWrite) {
+                // Write through
+                l3Cache.access(paddr, value, isWrite);
+            }
             return true;
         }
 
-        // L3访问
+        // L3 access
         if (l3Cache.access(paddr, value, isWrite)) {
-            l1Cache.insert(paddr, value);  // 填充L1
-            l2Cache.insert(paddr, value);  // 填充L2
+            l1Cache.insert(paddr, value);  // Fill L1
+            l2Cache.insert(paddr, value);  // Fill L2
             return true;
         }
 
-        // 所有缓存未命中
+        // Miss in all caches
         memAccessCount++;
-        l1Cache.insert(paddr, value);  // 填充L1
-        l2Cache.insert(paddr, value);  // 填充L2
-        l3Cache.insert(paddr, value);  // 填充L3
+        l1Cache.insert(paddr, value);  // Fill L1
+        l2Cache.insert(paddr, value);  // Fill L2
+        l3Cache.insert(paddr, value);  // Fill L3
         return false;
     }
 
@@ -181,10 +190,10 @@ class CacheHierarchy {
         printCacheStats(os, l3Cache);
         os << "Memory Accesses: " << memAccessCount << "\n";
         os << "Total Access Cost (cycles): "
-           << l1Cache.getAccesses() * 1 +       // L1访问周期
-                  l2Cache.getAccesses() * 4 +   // L2访问周期
-                  l3Cache.getAccesses() * 10 +  // L3访问周期
-                  memAccessCount * 100          // 内存访问周期
+           << l1Cache.getAccesses() * 1 +       // L1 access cycles
+                  l2Cache.getAccesses() * 4 +   // L2 access cycles
+                  l3Cache.getAccesses() * 10 +  // L3 access cycles
+                  memAccessCount * 100          // Memory access cycles
            << "\n";
     }
 
@@ -196,6 +205,9 @@ class CacheHierarchy {
            << "Hit Rate: " << std::fixed << std::setprecision(2)
            << cache.getHitRate() * 100 << "%\n"
            << "Accesses: " << cache.getAccesses() << "\n"
-           << "Misses: " << cache.getAccesses() - cache.getHits() << "\n\n";
+           << "Misses: " << cache.getAccesses() - cache.getHits() << "\n";
+        cache.printDetailedStats(os);
+        os << "---------------------------------\n";
+        os << std::endl;
     }
 };
