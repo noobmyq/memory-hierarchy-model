@@ -15,6 +15,12 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
         return vaTag % numSets;
     }
 
+    void handleEviction(const UINT64& vaTag, const UINT64& pfn,
+                        bool dirty) override {
+        // No eviction handling needed for PWC
+        // (PWC entries are not written back to memory)
+    }
+
    public:
     PageWalkCache(const std::string& cacheName, size_t numEntries = 16,
                   size_t associativity = 4, UINT32 lowBit = 0,

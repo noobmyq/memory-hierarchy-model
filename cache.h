@@ -14,9 +14,11 @@ class SetAssociativeCache {
         TagType tag;
         ValueType value;
         bool valid;
+        bool dirty;  // NEW: dirty bit for write-back policy
         UINT64 lruCounter;
 
-        CacheEntry() : tag(0), value(0), valid(false), lruCounter(0) {}
+        CacheEntry()
+            : tag(0), value(0), valid(false), dirty(false), lruCounter(0) {}
     };
 
     std::string name;         // Cache name for reporting
@@ -51,6 +53,10 @@ class SetAssociativeCache {
 
     // Hash function to map from tag to set index
     virtual size_t getSetIndex(const TagType& tag) const = 0;
+
+   protected:
+    virtual void handleEviction(const TagType& tag, const ValueType& value,
+                                bool dirty) = 0;  // Pure virtual function
 
    public:
     SetAssociativeCache(const std::string& cacheName, size_t num_sets,
@@ -90,27 +96,49 @@ class SetAssociativeCache {
         return false;
     }
 
-    // Core insert operation
-    void insert(const TagType& tag, const ValueType& value) {
+    // In cache.h, inside SetAssociativeCache class:
+    void insert(const TagType& tag, const ValueType& value,
+                bool isWrite = false) {
         size_t setIndex = getSetIndex(tag);
 
-        // Check if tag already exists
-        for (size_t way = 0; way < numWays; way++) {
+        // If block already in cache, update value and mark dirty on write
+        for (size_t way = 0; way < numWays; ++way) {
             if (sets[setIndex][way].valid && sets[setIndex][way].tag == tag) {
                 sets[setIndex][way].value = value;
+                if (isWrite) {
+                    sets[setIndex][way].dirty = true;  // mark as modified
+                }
+                // (If not a write, leave dirty flag as is)
                 updateLru(setIndex, way);
                 return;
             }
         }
 
-        // Find LRU entry to replace
+        // Block not present – choose a victim to evict (LRU)
         size_t victimWay = findLruWay(setIndex);
+        bool evictValid = sets[setIndex][victimWay].valid;
+        bool evictDirty = false;
+        TagType evictTag;
+        ValueType evictValue;
+        if (evictValid) {
+            // Save evicted block info for write-back
+            evictDirty = sets[setIndex][victimWay].dirty;
+            evictTag = sets[setIndex][victimWay].tag;
+            evictValue = sets[setIndex][victimWay].value;
+        }
 
-        // Update entry
+        // Replace victim with new block
         sets[setIndex][victimWay].tag = tag;
         sets[setIndex][victimWay].value = value;
         sets[setIndex][victimWay].valid = true;
+        sets[setIndex][victimWay].dirty =
+            isWrite;  // dirty if this is a write access
         updateLru(setIndex, victimWay);
+
+        // Write-back to next level if we evicted a dirty block
+        if (evictValid && evictDirty) {
+            handleEviction(evictTag, evictValue, true);
+        }
     }
 
     // Stats reporting methods

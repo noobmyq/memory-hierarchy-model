@@ -93,7 +93,7 @@ class Simulator {
             const ADDRINT vaddr = ref.ea;
             const ADDRINT paddr = page_table_.translate(vaddr);
             UINT64 value = 0;
-            cache_hierarchy_.access(paddr, value,!ref.read);
+            cache_hierarchy_.access(paddr, value, !ref.read);
 
             UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
             UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;

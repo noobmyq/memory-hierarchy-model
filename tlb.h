@@ -10,6 +10,11 @@ class TLB : public SetAssociativeCache<UINT64, UINT64> {
     size_t getSetIndex(const UINT64& vpn) const override {
         return vpn % numSets;
     }
+    void handleEviction(const UINT64& vpn, const UINT64& pfn,
+                        bool dirty) override {
+        // No eviction handling needed for TLB
+        // (TLB entries are not written back to memory)
+    }
 
    public:
     TLB(const std::string& cacheName = "TLB", size_t numEntries = 64,
