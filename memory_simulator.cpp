@@ -93,7 +93,7 @@ class Simulator {
             const ADDRINT vaddr = ref.ea;
             const ADDRINT paddr = page_table_.translate(vaddr);
             UINT64 value = 0;
-            cache_hierarchy_.access(paddr, value, ref.read);
+            cache_hierarchy_.access(paddr, value,!ref.read);
 
             UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
             UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
@@ -187,8 +187,17 @@ VOID Trace(TRACE trace, VOID* v) {
                 continue;
             UINT32 memOps = INS_MemoryOperandCount(ins);
             for (UINT32 memOp = 0; memOp < memOps; memOp++) {
-                if (INS_MemoryOperandIsRead(ins, memOp) ||
-                    INS_MemoryOperandIsWritten(ins, memOp)) {
+                if (INS_MemoryOperandIsRead(ins, memOp)) {
+                    INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
+                                         IARG_INST_PTR, offsetof(MEMREF, pc),
+                                         IARG_MEMORYOP_EA, memOp,
+                                         offsetof(MEMREF, ea), IARG_UINT32,
+                                         INS_MemoryOperandSize(ins, memOp),
+                                         offsetof(MEMREF, size), IARG_BOOL,
+                                         INS_MemoryOperandIsRead(ins, memOp),
+                                         offsetof(MEMREF, read), IARG_END);
+                }
+                if (INS_MemoryOperandIsWritten(ins, memOp)) {
                     INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
                                          IARG_INST_PTR, offsetof(MEMREF, pc),
                                          IARG_MEMORYOP_EA, memOp,
