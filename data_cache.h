@@ -23,15 +23,6 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     size_t*
         memAccessCounter;  // pointer to memory access counter (for last level)
 
-    static UINT32 log2(UINT32 n) {
-        if (n == 0)
-            return 0;
-        UINT32 result = 0;
-        while (n >>= 1)
-            result++;
-        return result;
-    }
-
    protected:
     size_t getSetIndex(const UINT64& paddr) const override {
         UINT64 index = (paddr >> offsetBits) & (numSets - 1);
@@ -62,7 +53,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
         : SetAssociativeCache<UINT64, UINT64>(
               name, totalSize / (associativity * lineSize), associativity),
           lineSize(lineSize) {
-        offsetBits = log2(lineSize);
+        offsetBits = static_log2(lineSize);
         readAccesses = readHits = 0;
         writeAccesses = writeHits = 0;
         writebacks = coldMisses = capacityMisses = conflictMisses = 0;

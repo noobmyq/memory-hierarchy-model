@@ -35,6 +35,22 @@ class PageTable {
     TLB l1Tlb;  // L1 TLB (smaller, faster)
     TLB l2Tlb;  // L2 TLB (larger, slower)
 
+    // page table set up
+    const size_t pgdEntrySize;
+    const size_t pudEntrySize;
+    const size_t pmdEntrySize;
+    const size_t pteEntrySize;
+
+    const int PTE_INDEX_SHIFT;
+    const int PMD_SHIFT;
+    const int PUD_SHIFT;
+    const int PGD_SHIFT;
+
+    const UINT64 PTE_MASK = pteEntrySize - 1;
+    const UINT64 PMD_MASK = pmdEntrySize - 1;
+    const UINT64 PUD_MASK = pudEntrySize - 1;
+    const UINT64 PGD_MASK = pgdEntrySize - 1;
+
     // Page Walk Caches for different levels
     PageWalkCache pgdPwc;  // PML4E cache (PGD)
     PageWalkCache pudPwc;  // PDPTE cache (PUD)
@@ -57,9 +73,14 @@ class PageTable {
         UINT64 accesses;     // Number of times this level was accessed
         UINT64 allocations;  // Number of tables allocated at this level
         UINT64 entries;      // Number of entries used at this level
+        UINT64 size;         // Size of the table at this level
 
-        PageTableLevelStats(const std::string& levelName)
-            : name(levelName), accesses(0), allocations(0), entries(0) {}
+        PageTableLevelStats(const std::string& levelName, size_t tableSize)
+            : name(levelName),
+              accesses(0),
+              allocations(0),
+              entries(0),
+              size(tableSize) {}
     };
 
     // Statistics for each level
@@ -75,15 +96,25 @@ class PageTable {
               size_t l2TlbWays = 8, size_t pgdPwcSize = 16,
               size_t pgdPwcWays = 4, size_t pudPwcSize = 16,
               size_t pudPwcWays = 4, size_t pmdPwcSize = 16,
-              size_t pmdPwcWays = 4)
+              size_t pmdPwcWays = 4, size_t pgdEntrySize = 512,
+              size_t pudEntrySize = 512, size_t pmdEntrySize = 512,
+              size_t pteEntrySize = 512)
         : physMem(physicalMemory),
           dataCache(dataCache),
           isPteCachable(isPteCachable),
           l1Tlb("L1 TLB", l1TlbSize, l1TlbWays),
           l2Tlb("L2 TLB", l2TlbSize, l2TlbWays),
-          pgdPwc("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, 39, 47),
-          pudPwc("PDPTE Cache (PUD)", pudPwcSize, pudPwcWays, 30, 47),
-          pmdPwc("PDE Cache (PMD)", pmdPwcSize, pmdPwcWays, 21, 47),
+          pgdEntrySize(pgdEntrySize),
+          pudEntrySize(pudEntrySize),
+          pmdEntrySize(pmdEntrySize),
+          pteEntrySize(pteEntrySize),
+          PTE_INDEX_SHIFT(PAGE_SHIFT),
+          PMD_SHIFT(PTE_INDEX_SHIFT + static_log2(pteEntrySize)),
+          PUD_SHIFT(PMD_SHIFT + static_log2(pmdEntrySize)),
+          PGD_SHIFT(PUD_SHIFT + static_log2(pudEntrySize)),
+          pgdPwc("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, PGD_SHIFT, 47),
+          pudPwc("PDPTE Cache (PUD)", pudPwcSize, pudPwcWays, PUD_SHIFT, 47),
+          pmdPwc("PDE Cache (PMD)", pmdPwcSize, pmdPwcWays, PMD_SHIFT, 47),
           l1TlbHits(0),
           l2TlbHits(0),
           pmdCacheHits(0),
@@ -93,28 +124,34 @@ class PageTable {
           pageWalkMemAccess(0),
           pteDataCacheHits(0),
           pteDataCacheMisses(0),
-          pgdStats("PGD (Page Global Directory)"),
-          pudStats("PUD (Page Upper Directory)"),
-          pmdStats("PMD (Page Middle Directory)"),
-          pteStats("PTE (Page Table Entry)") {
+          pgdStats("PGD (Page Global Directory)", pgdEntrySize),
+          pudStats("PUD (Page Upper Directory)", pudEntrySize),
+          pmdStats("PMD (Page Middle Directory)", pmdEntrySize),
+          pteStats("PTE (Page Table Entry)", pteEntrySize) {
         // Allocate the root page table (PGD)
         cr3 = physMem.allocateFrame() * MEMTRACE_PAGE_SIZE;
-        pageTables[cr3] = std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
+        pageTables[cr3] = std::make_unique<PageTableEntry[]>(pgdEntrySize);
         pgdStats.allocations++;
         pgdStats.entries++;
+        // assert that the page table entry is power of 2
+        assert((pgdEntrySize & (pgdEntrySize - 1)) == 0);
+        assert((pudEntrySize & (pudEntrySize - 1)) == 0);
+        assert((pmdEntrySize & (pmdEntrySize - 1)) == 0);
+        assert((pteEntrySize & (pteEntrySize - 1)) == 0);
+        assert(PGD_SHIFT + static_log2(pgdEntrySize) == 48);
     }
 
     // Get indexes into the page tables for a given virtual address
     UINT32 getPgdIndex(ADDRINT vaddr) const {
-        return (vaddr >> PGD_SHIFT) & PTE_MASK;
+        return (vaddr >> PGD_SHIFT) & PGD_MASK;
     }
 
     UINT32 getPudIndex(ADDRINT vaddr) const {
-        return (vaddr >> PUD_SHIFT) & PTE_MASK;
+        return (vaddr >> PUD_SHIFT) & PUD_MASK;
     }
 
     UINT32 getPmdIndex(ADDRINT vaddr) const {
-        return (vaddr >> PMD_SHIFT) & PTE_MASK;
+        return (vaddr >> PMD_SHIFT) & PMD_MASK;
     }
 
     UINT32 getPteIndex(ADDRINT vaddr) const {
@@ -188,7 +225,7 @@ class PageTable {
             pmdEntry.pfn = physMem.allocateFrame();
             UINT64 pteAddr = pmdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pteAddr] =
-                std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
+                std::make_unique<PageTableEntry[]>(pteEntrySize);
             pteStats.allocations++;
             pmdStats.entries++;
             assert(!hit);
@@ -233,7 +270,7 @@ class PageTable {
             pudEntry.pfn = physMem.allocateFrame();
             UINT64 pmdAddr = pudEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pmdAddr] =
-                std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
+                std::make_unique<PageTableEntry[]>(pmdEntrySize);
             pmdStats.allocations++;
             pudStats.entries++;
             assert(!hit);
@@ -278,7 +315,7 @@ class PageTable {
             pgdEntry.pfn = physMem.allocateFrame();
             UINT64 pudAddr = pgdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pudAddr] =
-                std::make_unique<PageTableEntry[]>(PTE_ENTRIES);
+                std::make_unique<PageTableEntry[]>(pudEntrySize);
             pudStats.allocations++;
             pgdStats.entries++;
             assert(!hit);
@@ -558,7 +595,7 @@ class PageTable {
         double avgFill = 0.0;
         if (stats.allocations > 0) {
             avgFill = (static_cast<double>(stats.entries) / stats.allocations) /
-                      PTE_ENTRIES * 100.0;
+                      stats.size * 100.0;
         }
 
         os << std::setw(30) << std::left << stats.name << std::setw(15)
