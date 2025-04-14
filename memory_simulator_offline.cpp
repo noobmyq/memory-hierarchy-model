@@ -153,19 +153,7 @@ public:
                 current_time - last_report_time).count();
             
             if (elapsed >= 5) {  // Report every 5 seconds
-                double progress_percent = 0.0;
-                if (input.tellg() != -1) {
-                    // Get file size (seek to end, get position, seek back)
-                    auto current_pos = input.tellg();
-                    input.seekg(0, std::ios::end);
-                    auto file_size = input.tellg();
-                    input.seekg(current_pos);
-                    
-                    progress_percent = 100.0 * static_cast<double>(current_pos) / file_size;
-                }
-                
-                cout << "Processed " << access_count_ << " accesses ("
-                     << std::fixed << std::setprecision(2) << progress_percent << "% complete)\r" << std::flush;
+                cout << "Processed " << access_count_ << " accesses\r" << std::flush;
                 last_report_time = current_time;
             }
         }
