@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -84,7 +85,8 @@ struct SimConfig {
 // --- Simulator Class ---
 class Simulator {
    public:
-    Simulator(const SimConfig& config, std::ostream& out_stream = cout)
+    Simulator(const SimConfig& config,
+              std::unique_ptr<std::ofstream> out_stream = nullptr)
         : config_(config),
           physical_memory_(config.physical_mem_bytes()),
           cache_hierarchy_(
@@ -98,7 +100,7 @@ class Simulator {
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
               config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
               config.pgtbl.pmd_size, config.pgtbl.pte_size),
-          out_stream_(out_stream) {}
+          out_stream_(std::move(out_stream)) {}
     void process_batch(const MEMREF* buffer, size_t numElements) {
         for (size_t i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
@@ -129,9 +131,9 @@ class Simulator {
         //      << "Physical memory used: "
         //      << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
         //      << " MB\n";
-        page_table_.printDetailedStats(out_stream_);
-        page_table_.printMemoryStats(out_stream_);
-        cache_hierarchy_.printStats(out_stream_);
+        page_table_.printDetailedStats(*out_stream_);
+        page_table_.printMemoryStats(*out_stream_);
+        cache_hierarchy_.printStats(*out_stream_);
     }
 
    private:
@@ -140,7 +142,7 @@ class Simulator {
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
     size_t access_count_ = 0;
-    std::ostream& out_stream_;
+    std::unique_ptr<std::ofstream> out_stream_;
 };
 
 // --- Pin Configuration ---
@@ -292,18 +294,17 @@ int main(int argc, char* argv[]) {
     config.pgtbl.pte_size = KnobPTESize.Value();
 
     // Open output file
-    std::ofstream out_file(KnobOutputFile.Value(),
-                           std::ios::out | std::ios::trunc);
-    if (!out_file.is_open()) {
+    auto out_file = std::make_unique<std::ofstream>(KnobOutputFile.Value());
+    if (!out_file->is_open()) {
         cerr << "Error: Unable to open output file " << KnobOutputFile.Value()
              << endl;
         return 1;
     }
 
-    config.print(out_file);
+    config.print(*out_file);
 
     // Initialize simulator
-    Simulator* simulator = new Simulator(config, out_file);
+    Simulator* simulator = new Simulator(config, std::move(out_file));
 
     // Define trace buffer
     bufId = PIN_DefineTraceBuffer(sizeof(MEMREF), NUM_BUF_PAGES, BufferFull,

@@ -1,8 +1,8 @@
 #pragma once
 
+#include <iostream>
 #include <vector>
 #include "common.h"
-#include <iostream>
 
 // Physical Memory Pool
 class PhysicalMemory {
