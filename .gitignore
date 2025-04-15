@@ -1,3 +1,4 @@
 *.out
 memory_simulator*
 .vscode
+!memory_simulator*.cpp

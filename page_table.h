@@ -132,7 +132,6 @@ class PageTable {
         cr3 = physMem.allocateFrame() * MEMTRACE_PAGE_SIZE;
         pageTables[cr3] = std::make_unique<PageTableEntry[]>(pgdEntrySize);
         pgdStats.allocations++;
-        pgdStats.entries++;
         // assert that the page table entry is power of 2
         assert((pgdEntrySize & (pgdEntrySize - 1)) == 0);
         assert((pudEntrySize & (pudEntrySize - 1)) == 0);
