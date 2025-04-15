@@ -34,7 +34,7 @@ class SetAssociativeCache {
         size_t lruWay = 0;
         UINT64 minCounter = sets[setIndex][0].lruCounter;
 
-        for (size_t way = 1; way < numWays; way++) {
+        for (size_t way = 0; way < numWays; way++) {
             if (!sets[setIndex][way].valid) {
                 return way;  // Return first invalid entry
             }
@@ -94,6 +94,19 @@ class SetAssociativeCache {
             }
         }
         return false;
+    }
+
+    void mark_dirty(const TagType& tag) {
+        size_t setIndex = getSetIndex(tag);
+        for (size_t way = 0; way < numWays; way++) {
+            if (sets[setIndex][way].valid && sets[setIndex][way].tag == tag) {
+                sets[setIndex][way].dirty = true;
+                return;
+            }
+        }
+        std::cerr << "Error: Tag not found in cache for marking dirty."
+                  << std::endl;
+        exit(-1);
     }
 
     // In cache.h, inside SetAssociativeCache class:

@@ -1,4 +1,7 @@
+#include <fstream>
 #include <iostream>
+#include <ostream>
+#include <string>
 #include <unordered_map>
 #include "common.h"
 #include "data_cache.h"
@@ -49,40 +52,39 @@ struct SimConfig {
     } pgtbl;
     UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }
 
-    void print() const {
-        cout << "\nSimulation Configuration:\n"
-             << "========================\n"
-             << "Physical Memory:     " << phys_mem_gb << " GB\n"
-             << "L1 TLB:             " << tlb.l1_size << " entries, "
-             << tlb.l1_ways << "-way\n"
-             << "L2 TLB:             " << tlb.l2_size << " entries, "
-             << tlb.l2_ways << "-way\n"
-             << "Page Walk Cache (PGD): " << pwc.pgdSize << " entries, "
-             << pwc.pgdWays << "-way\n"
-             << "Page Walk Cache (PUD): " << pwc.pudSize << " entries, "
-             << pwc.pudWays << "-way\n"
-             << "Page Walk Cache (PMD): " << pwc.pmdSize << " entries, "
-             << pwc.pmdWays << "-way\n"
-             << "L1 Cache:           " << cache.l1_size / 1024 << "KB, "
-             << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
-             << "L2 Cache:           " << cache.l2_size / 1024 << "KB, "
-             << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
-             << "L3 Cache:           " << cache.l3_size / (1024 * 1024)
-             << "MB, " << cache.l3_ways << "-way, " << cache.l3_line
-             << "B line\n"
-             << "PTE Cacheable:      "
-             << (pgtbl.pte_cachable ? "true" : "false") << "\n"
-             << "PGD Size:           " << pgtbl.pgd_size << " entries\n"
-             << "PUD Size:           " << pgtbl.pud_size << " entries\n"
-             << "PMD Size:           " << pgtbl.pmd_size << " entries\n"
-             << "PTE Size:           " << pgtbl.pte_size << " entries\n";
+    void print(std::ostream& os) const {
+        os << "\nSimulation Configuration:\n"
+           << "========================\n"
+           << "Physical Memory:     " << phys_mem_gb << " GB\n"
+           << "L1 TLB:             " << tlb.l1_size << " entries, "
+           << tlb.l1_ways << "-way\n"
+           << "L2 TLB:             " << tlb.l2_size << " entries, "
+           << tlb.l2_ways << "-way\n"
+           << "Page Walk Cache (PGD): " << pwc.pgdSize << " entries, "
+           << pwc.pgdWays << "-way\n"
+           << "Page Walk Cache (PUD): " << pwc.pudSize << " entries, "
+           << pwc.pudWays << "-way\n"
+           << "Page Walk Cache (PMD): " << pwc.pmdSize << " entries, "
+           << pwc.pmdWays << "-way\n"
+           << "L1 Cache:           " << cache.l1_size / 1024 << "KB, "
+           << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
+           << "L2 Cache:           " << cache.l2_size / 1024 << "KB, "
+           << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
+           << "L3 Cache:           " << cache.l3_size / (1024 * 1024) << "MB, "
+           << cache.l3_ways << "-way, " << cache.l3_line << "B line\n"
+           << "PTE Cacheable:      " << (pgtbl.pte_cachable ? "true" : "false")
+           << "\n"
+           << "PGD Size:           " << pgtbl.pgd_size << " entries\n"
+           << "PUD Size:           " << pgtbl.pud_size << " entries\n"
+           << "PMD Size:           " << pgtbl.pmd_size << " entries\n"
+           << "PTE Size:           " << pgtbl.pte_size << " entries\n";
     }
 };
 
 // --- Simulator Class ---
 class Simulator {
    public:
-    Simulator(const SimConfig& config)
+    Simulator(const SimConfig& config, std::ostream& out_stream = cout)
         : config_(config),
           physical_memory_(config.physical_mem_bytes()),
           cache_hierarchy_(
@@ -95,8 +97,8 @@ class Simulator {
               config.tlb.l2_ways, config.pwc.pgdSize, config.pwc.pgdWays,
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
               config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
-              config.pgtbl.pmd_size, config.pgtbl.pte_size) {}
-
+              config.pgtbl.pmd_size, config.pgtbl.pte_size),
+          out_stream_(out_stream) {}
     void process_batch(const MEMREF* buffer, size_t numElements) {
         for (size_t i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
@@ -106,10 +108,10 @@ class Simulator {
             UINT64 value = 0;
             cache_hierarchy_.access(paddr, value, !ref.read);
 
-            UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
-            UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
-            virtual_pages_[vpn]++;
-            physical_pages_[ppn]++;
+            // UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
+            // UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
+            // virtual_pages_[vpn]++;
+            // physical_pages_[ppn]++;
 
             if (access_count_ % 10000000 == 0) {
                 cout << "Processed " << (access_count_ / 10000000)
@@ -119,17 +121,17 @@ class Simulator {
     }
 
     void print_stats() {
-        cout << "\n\nSimulation Results:\n"
-             << "==================\n"
-             << "Total accesses:       " << access_count_ << "\n"
-             << "Unique virtual pages: " << virtual_pages_.size() << "\n"
-             << "Unique physical pages:" << physical_pages_.size() << "\n"
-             << "Physical memory used: "
-             << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
-             << " MB\n";
-        page_table_.printDetailedStats(cout);
-        page_table_.printMemoryStats(cout);
-        cache_hierarchy_.printStats(cout);
+        // cout << "\n\nSimulation Results:\n"
+        //      << "==================\n"
+        //      << "Total accesses:       " << access_count_ << "\n"
+        //      << "Unique virtual pages: " << virtual_pages_.size() << "\n"
+        //      << "Unique physical pages:" << physical_pages_.size() << "\n"
+        //      << "Physical memory used: "
+        //      << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
+        //      << " MB\n";
+        page_table_.printDetailedStats(out_stream_);
+        page_table_.printMemoryStats(out_stream_);
+        cache_hierarchy_.printStats(out_stream_);
     }
 
    private:
@@ -138,8 +140,7 @@ class Simulator {
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
     size_t access_count_ = 0;
-    std::unordered_map<UINT64, size_t> virtual_pages_;
-    std::unordered_map<UINT64, size_t> physical_pages_;
+    std::ostream& out_stream_;
 };
 
 // --- Pin Configuration ---
@@ -197,6 +198,9 @@ KNOB<size_t> KnobPMDSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_size", "512",
                          "Number of PMD entries");
 KNOB<size_t> KnobPTESize(KNOB_MODE_WRITEONCE, "pintool", "pte_size", "512",
                          "Number of PTE entries");
+KNOB<std::string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o",
+                                 "memory_simulator.out",
+                                 "Output file for simulation results");
 
 // --- Pin Instrumentation ---
 VOID Trace(TRACE trace, VOID* v) {
@@ -287,10 +291,19 @@ int main(int argc, char* argv[]) {
     config.pgtbl.pmd_size = KnobPMDSize.Value();
     config.pgtbl.pte_size = KnobPTESize.Value();
 
-    config.print();
+    // Open output file
+    std::ofstream out_file(KnobOutputFile.Value(),
+                           std::ios::out | std::ios::trunc);
+    if (!out_file.is_open()) {
+        cerr << "Error: Unable to open output file " << KnobOutputFile.Value()
+             << endl;
+        return 1;
+    }
+
+    config.print(out_file);
 
     // Initialize simulator
-    Simulator* simulator = new Simulator(config);
+    Simulator* simulator = new Simulator(config, out_file);
 
     // Define trace buffer
     bufId = PIN_DefineTraceBuffer(sizeof(MEMREF), NUM_BUF_PAGES, BufferFull,
