@@ -16,85 +16,10 @@ using std::cerr;
 using std::cout;
 using std::endl;
 
-// --- Offline Analyzer Configuration ---
-struct OfflineConfig {
-    UINT64 phys_mem_gb = 30;
-    struct {
-        size_t l1_size = 64;
-        size_t l1_ways = 4;
-        size_t l2_size = 1024;
-        size_t l2_ways = 8;
-    } tlb;
-    struct {
-        size_t pgdSize = 4;
-        size_t pgdWays = 4;
-        size_t pudSize = 4;
-        size_t pudWays = 4;
-        size_t pmdSize = 16;
-        size_t pmdWays = 4;
-    } pwc;
-    struct {
-        size_t l1_size = 32 * 1024;  // 32KB
-        size_t l1_ways = 8;
-        size_t l1_line = 64;
-        size_t l2_size = 256 * 1024;  // 256KB
-        size_t l2_ways = 16;
-        size_t l2_line = 64;
-        size_t l3_size = 8 * 1024 * 1024;  // 8MB
-        size_t l3_ways = 16;
-        size_t l3_line = 64;
-    } cache;
-
-    struct {
-        size_t pgd_size = 512;
-        size_t pud_size = 512;
-        size_t pmd_size = 512;
-        size_t pte_size = 512;
-        bool pte_cachable = true;
-    } pgtbl;
-
-    std::string trace_file;  // Path to the trace file
-    size_t batch_size =
-        4096;  // Number of MEMREF entries to process in each batch
-
-    UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }
-
-    void print() const {
-        cout << "\nOffline Analysis Configuration:\n"
-             << "==============================\n"
-             << "Trace File:          " << trace_file << "\n"
-             << "Batch Size:          " << batch_size << " entries\n"
-             << "Physical Memory:     " << phys_mem_gb << " GB\n"
-             << "L1 TLB:             " << tlb.l1_size << " entries, "
-             << tlb.l1_ways << "-way\n"
-             << "L2 TLB:             " << tlb.l2_size << " entries, "
-             << tlb.l2_ways << "-way\n"
-             << "Page Walk Cache (PGD): " << pwc.pgdSize << " entries, "
-             << pwc.pgdWays << "-way\n"
-             << "Page Walk Cache (PUD): " << pwc.pudSize << " entries, "
-             << pwc.pudWays << "-way\n"
-             << "Page Walk Cache (PMD): " << pwc.pmdSize << " entries, "
-             << pwc.pmdWays << "-way\n"
-             << "L1 Cache:           " << cache.l1_size / 1024 << "KB, "
-             << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
-             << "L2 Cache:           " << cache.l2_size / 1024 << "KB, "
-             << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
-             << "L3 Cache:           " << cache.l3_size / (1024 * 1024)
-             << "MB, " << cache.l3_ways << "-way, " << cache.l3_line
-             << "B line\n"
-             << "PTE Cacheable:      "
-             << (pgtbl.pte_cachable ? "true" : "false") << "\n"
-             << "PGD Size:           " << pgtbl.pgd_size << " entries\n"
-             << "PUD Size:           " << pgtbl.pud_size << " entries\n"
-             << "PMD Size:           " << pgtbl.pmd_size << " entries\n"
-             << "PTE Size:           " << pgtbl.pte_size << " entries\n";
-    }
-};
-
 // --- Offline Analyzer Class ---
 class OfflineAnalyzer {
    public:
-    OfflineAnalyzer(const OfflineConfig& config)
+    OfflineAnalyzer(const SimConfig& config)
         : config_(config),
           physical_memory_(config.physical_mem_bytes()),
           cache_hierarchy_(
@@ -107,7 +32,8 @@ class OfflineAnalyzer {
               config.tlb.l2_ways, config.pwc.pgdSize, config.pwc.pgdWays,
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
               config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
-              config.pgtbl.pmd_size, config.pgtbl.pte_size) {}
+              config.pgtbl.pmd_size, config.pgtbl.pte_size,
+              config.pgtbl.TOCEnabled, config.pgtbl.TOCSize) {}
 
     bool run() {
         // Open trace file
@@ -233,7 +159,7 @@ class OfflineAnalyzer {
     }
 
    private:
-    OfflineConfig config_;
+    SimConfig config_;
     PhysicalMemory physical_memory_;
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
@@ -243,10 +169,10 @@ class OfflineAnalyzer {
 };
 
 // --- Command Line Argument Parsing ---
-OfflineConfig parse_args(int argc, char* argv[]) {
-    OfflineConfig config;
+SimConfig parse_args(int argc, char* argv[]) {
+    SimConfig config;
 
-    // Default values are already set in the OfflineConfig struct
+    // Default values are already set in the SimConfig struct
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -285,6 +211,30 @@ OfflineConfig parse_args(int argc, char* argv[]) {
                     "64)\n"
                  << "  --pte_cachable BOOL       PTE cacheable flag (default: "
                     "1)\n"
+                 << "  --pgd_size N              PGD size in entries "
+                    "(default: 512)\n"
+                 << "  --pud_size N              PUD size in entries "
+                    "(default: 512)\n"
+                 << "  --pmd_size N              PMD size in entries "
+                    "(default: 512)\n"
+                 << "  --pte_size N              PTE size in entries "
+                    "(default: 512)\n"
+                 << "  --pgd_pwc_size N          PGD PWC size in entries "
+                    "(default: 4)\n"
+                 << "  --pgd_pwc_ways N          PGD PWC associativity "
+                    "(default: 4)\n"
+                 << "  --pud_pwc_size N          PUD PWC size in entries "
+                    "(default: 4)\n"
+                 << "  --pud_pwc_ways N          PUD PWC associativity "
+                    "(default: 4)\n"
+                 << "  --pmd_pwc_size N          PMD PWC size in entries "
+                    "(default: 16)\n"
+                 << "  --pmd_pwc_ways N          PMD PWC associativity "
+                    "(default: 4)\n"
+                 << " ---TOCEnabled BOOL          Enable TOC (default: 0)\n"
+                 << "  --TOCSize N               TOC size in bytes "
+                    "(default: 0)\n"
+                 << "  <trace_file>              Path to the trace file\n"
                  << endl;
             exit(0);
         } else if (arg == "--phys_mem_gb" && i + 1 < argc) {
@@ -339,6 +289,10 @@ OfflineConfig parse_args(int argc, char* argv[]) {
             config.pwc.pmdSize = std::stoull(argv[++i]);
         } else if (arg == "--pmd_pwc_ways" && i + 1 < argc) {
             config.pwc.pmdWays = std::stoull(argv[++i]);
+        } else if (arg == "--TOCEnabled" && i + 1 < argc) {
+            config.pgtbl.TOCEnabled = (std::stoi(argv[++i]) != 0);
+        } else if (arg == "--TOCSize" && i + 1 < argc) {
+            config.pgtbl.TOCSize = std::stoull(argv[++i]);
         } else if (config.trace_file.empty() && arg[0] != '-') {
             // Assume this is the trace file
             config.trace_file = arg;
@@ -362,7 +316,7 @@ int main(int argc, char* argv[]) {
     cout << "=================================" << endl;
 
     // Parse command line arguments
-    OfflineConfig config = parse_args(argc, argv);
+    SimConfig config = parse_args(argc, argv);
 
     // Print configuration
     config.print();

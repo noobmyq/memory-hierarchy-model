@@ -15,73 +15,6 @@ using std::endl;
 
 static_assert(sizeof(MEMREF) == 24, "MEMREF struct has unexpected padding");
 
-// --- Simulator Configuration ---
-struct SimConfig {
-    UINT64 phys_mem_gb = 1;
-    struct {
-        size_t l1_size = 64;
-        size_t l1_ways = 4;
-        size_t l2_size = 1024;
-        size_t l2_ways = 8;
-    } tlb;
-    struct {
-        size_t pgdSize = 16;
-        size_t pgdWays = 4;
-        size_t pudSize = 16;
-        size_t pudWays = 4;
-        size_t pmdSize = 16;
-        size_t pmdWays = 4;
-    } pwc;
-    struct {
-        size_t l1_size = 32 * 1024;  // 32KB
-        size_t l1_ways = 8;
-        size_t l1_line = 64;
-        size_t l2_size = 256 * 1024;  // 256KB
-        size_t l2_ways = 16;
-        size_t l2_line = 64;
-        size_t l3_size = 8 * 1024 * 1024;  // 8MB
-        size_t l3_ways = 16;
-        size_t l3_line = 64;
-    } cache;
-
-    struct {
-        size_t pgd_size = 512;
-        size_t pud_size = 512;
-        size_t pmd_size = 512;
-        size_t pte_size = 512;
-        bool pte_cachable = true;
-    } pgtbl;
-    UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }
-
-    void print(std::ostream& os) const {
-        os << "\nSimulation Configuration:\n"
-           << "========================\n"
-           << "Physical Memory:     " << phys_mem_gb << " GB\n"
-           << "L1 TLB:             " << tlb.l1_size << " entries, "
-           << tlb.l1_ways << "-way\n"
-           << "L2 TLB:             " << tlb.l2_size << " entries, "
-           << tlb.l2_ways << "-way\n"
-           << "Page Walk Cache (PGD): " << pwc.pgdSize << " entries, "
-           << pwc.pgdWays << "-way\n"
-           << "Page Walk Cache (PUD): " << pwc.pudSize << " entries, "
-           << pwc.pudWays << "-way\n"
-           << "Page Walk Cache (PMD): " << pwc.pmdSize << " entries, "
-           << pwc.pmdWays << "-way\n"
-           << "L1 Cache:           " << cache.l1_size / 1024 << "KB, "
-           << cache.l1_ways << "-way, " << cache.l1_line << "B line\n"
-           << "L2 Cache:           " << cache.l2_size / 1024 << "KB, "
-           << cache.l2_ways << "-way, " << cache.l2_line << "B line\n"
-           << "L3 Cache:           " << cache.l3_size / (1024 * 1024) << "MB, "
-           << cache.l3_ways << "-way, " << cache.l3_line << "B line\n"
-           << "PTE Cacheable:      " << (pgtbl.pte_cachable ? "true" : "false")
-           << "\n"
-           << "PGD Size:           " << pgtbl.pgd_size << " entries\n"
-           << "PUD Size:           " << pgtbl.pud_size << " entries\n"
-           << "PMD Size:           " << pgtbl.pmd_size << " entries\n"
-           << "PTE Size:           " << pgtbl.pte_size << " entries\n";
-    }
-};
-
 // --- Simulator Class ---
 class Simulator {
    public:
@@ -99,7 +32,8 @@ class Simulator {
               config.tlb.l2_ways, config.pwc.pgdSize, config.pwc.pgdWays,
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
               config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
-              config.pgtbl.pmd_size, config.pgtbl.pte_size),
+              config.pgtbl.pmd_size, config.pgtbl.pte_size,
+              config.pgtbl.TOCEnabled, config.pgtbl.TOCSize),
           out_stream_(std::move(out_stream)) {}
     void process_batch(const MEMREF* buffer, size_t numElements) {
         for (size_t i = 0; i < numElements; ++i) {
@@ -200,6 +134,10 @@ KNOB<size_t> KnobPMDSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_size", "512",
                          "Number of PMD entries");
 KNOB<size_t> KnobPTESize(KNOB_MODE_WRITEONCE, "pintool", "pte_size", "512",
                          "Number of PTE entries");
+KNOB<bool> KnobTOCEnabled(KNOB_MODE_WRITEONCE, "pintool", "toc_enabled", "0",
+                          "Enable Table of Contents (TOC) for PWC");
+KNOB<UINT32> KnobTOCSize(KNOB_MODE_WRITEONCE, "pintool", "toc_size", "0",
+                         "Size of the Table of Contents (TOC) in bytes");
 KNOB<std::string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o",
                                  "memory_simulator.out",
                                  "Output file for simulation results");
@@ -292,6 +230,8 @@ int main(int argc, char* argv[]) {
     config.pgtbl.pud_size = KnobPUDSize.Value();
     config.pgtbl.pmd_size = KnobPMDSize.Value();
     config.pgtbl.pte_size = KnobPTESize.Value();
+    config.pgtbl.TOCEnabled = KnobTOCEnabled.Value();
+    config.pgtbl.TOCSize = KnobTOCSize.Value();
 
     // Open output file
     auto out_file = std::make_unique<std::ofstream>(KnobOutputFile.Value());
