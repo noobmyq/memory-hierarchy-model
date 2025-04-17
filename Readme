@@ -21,5 +21,8 @@ see `memory_simulator.cpp` for simulator options
 - [x] Page table contents cachable
 - [x] Integrate with pin
 
+## TODO
+- [] TOC in pwc
+- [] TODO
+
 ## Optimization
-TODO
