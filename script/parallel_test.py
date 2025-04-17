@@ -14,14 +14,16 @@ import multiprocessing
 import time
 import uuid
 import datetime
+import itertools
 from typing import Tuple, List, Dict
 
 # Define workload lists
 LARGE_WORKLOAD_LIST = [
     {'name': 'BTree', 'options': ['700000', '100000']},
     # {'name': 'mcf-static', 'options': ['inp.in']},
-    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2000', '-p', '40000']},
+    # {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2000', '-p', '40000']},
     {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
+    {'name': 'gups-static', 'options': ['15']}
 ]
 
 TINY_WORKLOAD_LIST = [
@@ -43,19 +45,28 @@ SIMULATOR_BASE_CMD = (
     '-l1_tlb_size {l1_tlb} '
     '-l2_tlb_size {l2_tlb} '
     '-pte_cachable {pte_cachable} '
+    '-pgd_size {pgd_size_pt} '
+    '-pud_size {pud_size_pt} '
+    '-pmd_size {pmd_size_pt} '
+    '-pte_size {pte_size_pt} '
     '-o {output_file} '
     '-- {executable} {options}'
 )
 
-def generate_simulator_configs():
-    """Generate memory simulator configurations"""
+def generate_page_table_sizes():
+    """Generate page table size configurations"""
     return [
-        # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways, phys_mem, l1_tlb, l2_tlb, pte_cachable)
-        (16, 4, 16, 4, 96, 4, 30, 32, 512, 0),
-        (32, 8, 16, 4, 96, 4, 30, 32, 512, 0),
-        (16, 4, 32, 8, 96, 4, 30, 32, 512, 0),
-        (16, 4, 16, 4, 128, 8, 30, 32, 512, 0),
-        (32, 8, 32, 8, 128, 8, 30, 32, 512, 0),
+        (512, 512, 512, 512),
+        (8, 4096, 4096, 512),
+        (32, 2048, 2048, 512),
+        (1, 2097152, 128, 256),
+    ]
+
+def generate_pwc_configs():
+    """Generate page walk cache configurations"""
+    return [
+        # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways)
+        (4,4,4,4,16,4),   # Baseline PWC configuration
     ]
 
 def run_one_experiment(config_data):
@@ -63,18 +74,21 @@ def run_one_experiment(config_data):
     
     Parameters:
     - config_data: A tuple containing:
-        (sim_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose)
+        (pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params)
     
     Returns:
     - True if experiment completed successfully, False otherwise
     """
-    sim_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose = config_data
+    pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params = config_data
     
-    # Unpack configuration
-    pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways, phys_mem, l1_tlb, l2_tlb, pte_cachable = sim_config
+    # Unpack configurations
+    pgd_size_pt, pud_size_pt, pmd_size_pt, pte_size_pt = pt_config
+    pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways = pwc_config
+    phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params
     
     # Create a unique ID for this run
-    run_id = f"{pgd_size}_{pud_size}_{pmd_size}_{uuid.uuid4().hex[:6]}"
+    config_id = f"pgd{pgd_size_pt}_pud{pud_size_pt}_pmd{pmd_size_pt}_pte{pte_size_pt}_pwc{pgd_size}-{pud_size}-{pmd_size}"
+    run_id = f"{config_id}_{uuid.uuid4().hex[:6]}"
     
     # Create workload directory if it doesn't exist
     workload_dir = os.path.join(exp_dir, workload['name'])
@@ -84,9 +98,8 @@ def run_one_experiment(config_data):
     output_file = os.path.join(workload_dir, f"output_{run_id}.txt")
     
     try:
-        # Change to simulator directory (assuming the script is in a script/ subfolder)
-        simulator_dir = os.path.join(base_dir)
-        os.chdir(simulator_dir)
+        # Change to base directory
+        os.chdir(base_dir)
         
         # Prepare workload command
         executable = workload_path
@@ -104,13 +117,17 @@ def run_one_experiment(config_data):
             l1_tlb=l1_tlb,
             l2_tlb=l2_tlb,
             pte_cachable=pte_cachable,
+            pgd_size_pt=pgd_size_pt,
+            pud_size_pt=pud_size_pt,
+            pmd_size_pt=pmd_size_pt,
+            pte_size_pt=pte_size_pt,
             output_file=output_file,
             executable=executable,
             options=options
         )
         
         # Execute simulator command
-        print(f"Running: {workload['name']} with config {sim_config}")
+        print(f"Running: {workload['name']} with config {config_id}")
         process = subprocess.run(
             run_cmd,
             shell=True,
@@ -124,11 +141,20 @@ def run_one_experiment(config_data):
         with open(summary_file, 'w') as f:
             f.write(f"Experiment: {exp_name}\n")
             f.write(f"Workload: {workload['name']}\n")
-            f.write(f"Options: {' '.join(workload.get('options', []))}\n")
-            f.write(f"Configuration:\n")
+            f.write(f"Options: {' '.join(workload.get('options', []))}\n\n")
+            
+            f.write(f"Page Table Configuration:\n")
+            f.write(f"  PGD Size: {pgd_size_pt} entries\n")
+            f.write(f"  PUD Size: {pud_size_pt} entries\n")
+            f.write(f"  PMD Size: {pmd_size_pt} entries\n")
+            f.write(f"  PTE Size: {pte_size_pt} entries\n\n")
+            
+            f.write(f"PWC Configuration:\n")
             f.write(f"  PGD PWC Size: {pgd_size}, Ways: {pgd_ways}\n")
             f.write(f"  PUD PWC Size: {pud_size}, Ways: {pud_ways}\n")
-            f.write(f"  PMD PWC Size: {pmd_size}, Ways: {pmd_ways}\n")
+            f.write(f"  PMD PWC Size: {pmd_size}, Ways: {pmd_ways}\n\n")
+            
+            f.write(f"Other Parameters:\n")
             f.write(f"  Physical Memory: {phys_mem} GB\n")
             f.write(f"  L1 TLB Size: {l1_tlb}\n")
             f.write(f"  L2 TLB Size: {l2_tlb}\n")
@@ -140,23 +166,23 @@ def run_one_experiment(config_data):
                     f.write("Key Statistics:\n")
                     statistics_found = False
                     for line in out_f:
-                        if any(key in line for key in ['TLB', 'PWC', 'Page', 'Miss', 'Hit', 'Cycles']):
+                        if any(key in line for key in ['TLB', 'PWC', 'Page', 'Miss', 'Hit', 'Cycles', 'Walk']):
                             f.write(f"  {line.strip()}\n")
                             statistics_found = True
                     
                     if not statistics_found:
                         f.write("  No statistics found in output file\n")
         
-        print(f"Completed: {workload['name']} with config {sim_config}")
+        print(f"Completed: {workload['name']} with config {config_id}")
         return True
         
     except subprocess.CalledProcessError as e:
-        print(f"Error running {workload['name']} with config {sim_config}: {e}")
+        print(f"Error running {workload['name']} with config {config_id}: {e}")
         if e.stderr:
             print(f"STDERR: {e.stderr.decode()[:200]}...")
         return False
     except Exception as e:
-        print(f"Unexpected error with {workload['name']}, config {sim_config}: {str(e)}")
+        print(f"Unexpected error with {workload['name']}, config {config_id}: {str(e)}")
         return False
     finally:
         # Change back to script directory
@@ -201,6 +227,13 @@ def main():
     exp_dir = os.path.join(results_base_dir, exp_dir_name)
     os.makedirs(exp_dir, exist_ok=True)
     
+    # Generate configurations
+    page_table_configs = generate_page_table_sizes()
+    pwc_configs = generate_pwc_configs()
+    
+    # Common parameters (fixed for all runs)
+    common_params = (30, 32, 512, 1)  # phys_mem, l1_tlb, l2_tlb, pte_cachable
+    
     # Create README.md in the experiment directory
     with open(os.path.join(exp_dir, "README.md"), 'w') as f:
         f.write(f"# Experiment: {args.exp_name}\n\n")
@@ -210,20 +243,30 @@ def main():
         f.write(f"{args.exp_purpose}\n\n")
         f.write(f"## Workload Type\n")
         f.write(f"{args.workload_type}\n\n")
-        f.write(f"## Configuration Summary\n")
         
-        # Add configurations to README
-        configs = generate_simulator_configs()
-        for i, config in enumerate(configs):
-            pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways, phys_mem, l1_tlb, l2_tlb, pte_cachable = config
-            f.write(f"### Config {i+1}:\n")
+        f.write(f"## Page Table Size Configurations\n")
+        for i, pt_config in enumerate(page_table_configs):
+            pgd_size, pud_size, pmd_size, pte_size = pt_config
+            f.write(f"### Page Table Config {i+1}:\n")
+            f.write(f"- PGD Size: {pgd_size} entries\n")
+            f.write(f"- PUD Size: {pud_size} entries\n")
+            f.write(f"- PMD Size: {pmd_size} entries\n")
+            f.write(f"- PTE Size: {pte_size} entries\n\n")
+        
+        f.write(f"## PWC Configurations\n")
+        for i, pwc_config in enumerate(pwc_configs):
+            pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways = pwc_config
+            f.write(f"### PWC Config {i+1}:\n")
             f.write(f"- PGD PWC Size: {pgd_size}, Ways: {pgd_ways}\n")
             f.write(f"- PUD PWC Size: {pud_size}, Ways: {pud_ways}\n")
-            f.write(f"- PMD PWC Size: {pmd_size}, Ways: {pmd_ways}\n")
-            f.write(f"- Physical Memory: {phys_mem} GB\n")
-            f.write(f"- L1 TLB Size: {l1_tlb}\n")
-            f.write(f"- L2 TLB Size: {l2_tlb}\n")
-            f.write(f"- PTE Cachable: {pte_cachable}\n\n")
+            f.write(f"- PMD PWC Size: {pmd_size}, Ways: {pmd_ways}\n\n")
+        
+        f.write(f"## Common Parameters\n")
+        phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params
+        f.write(f"- Physical Memory: {phys_mem} GB\n")
+        f.write(f"- L1 TLB Size: {l1_tlb}\n")
+        f.write(f"- L2 TLB Size: {l2_tlb}\n")
+        f.write(f"- PTE Cachable: {pte_cachable}\n\n")
     
     # Select workload list
     workload_list = LARGE_WORKLOAD_LIST if args.workload_type == 'large' else TINY_WORKLOAD_LIST
@@ -237,24 +280,26 @@ def main():
     if args.workload_num is not None and (args.workload_num < 0 or args.workload_num >= len(workload_list)):
         parser.error(f"Workload number must be between 0 and {len(workload_list)-1}")
     
-    # Generate simulator configurations
-    sim_config_list = generate_simulator_configs()
-    
-    # Create experiment configurations
+    # Create experiment configurations with permutations of page table sizes and PWC configs
     configs = []
     if args.workload_num is not None:
         workload = workload_list[args.workload_num]
         workload_path = os.path.join(workload_base_dir, workload['name'])
-        for config in sim_config_list:
-            configs.append((config, workload, workload_path, base_dir, exp_dir, args.exp_name, args.exp_purpose))
+        for pt_config in page_table_configs:
+            for pwc_config in pwc_configs:
+                configs.append((pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, 
+                               args.exp_name, args.exp_purpose, common_params))
     else:
         for workload in workload_list:
             workload_path = os.path.join(workload_base_dir, workload['name'])
-            for config in sim_config_list:
-                configs.append((config, workload, workload_path, base_dir, exp_dir, args.exp_name, args.exp_purpose))
+            for pt_config in page_table_configs:
+                for pwc_config in pwc_configs:
+                    configs.append((pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, 
+                                   args.exp_name, args.exp_purpose, common_params))
     
     # Calculate parallelism level
-    num_workers = min(len(sim_config_list) * args.parallel_factor, len(configs))
+    total_configs = len(page_table_configs) * len(pwc_configs)
+    num_workers = min(total_configs * args.parallel_factor, len(configs))
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
     # Start timing
@@ -284,7 +329,8 @@ def main():
         f.write(f"{args.exp_purpose}\n\n")
         
         # Add workload information
-        f.write("## Workload Summary\n")
+        f.write("## Results by Workload\n")
+        processed_results = 0
         for i, workload in enumerate(workload_list):
             if args.workload_num is not None and i != args.workload_num:
                 continue
@@ -294,12 +340,48 @@ def main():
                 f.write(f"- Options: {' '.join(workload['options'])}\n")
             
             # Count successful runs for this workload
-            workload_configs = [c for c in configs if c[1]['name'] == workload['name']]
-            workload_results = results[:len(workload_configs)]
-            results = results[len(workload_configs):]  # Remove processed results
+            workload_configs = [c for c in configs if c[2]['name'] == workload['name']]
+            workload_result_count = len(workload_configs)
+            workload_results = results[processed_results:processed_results + workload_result_count]
+            processed_results += workload_result_count
             
             workload_success = sum(1 for r in workload_results if r)
-            f.write(f"- Success rate: {workload_success}/{len(workload_configs)}\n\n")
+            f.write(f"- Success rate: {workload_success}/{workload_result_count}\n\n")
+            
+            # Matrix table for page table configurations vs PWC configurations
+            f.write("#### Results Matrix\n")
+            f.write("| Page Table Config \\ PWC Config | ")
+            
+            # PWC config headers
+            for j, pwc_config in enumerate(pwc_configs):
+                pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways = pwc_config
+                pwc_id = f"PWC-{j+1}"
+                f.write(f"{pwc_id} | ")
+            f.write("\n")
+            
+            # Header separator
+            f.write("|" + "-" * 24 + "|")
+            for _ in pwc_configs:
+                f.write("-" * 8 + "|")
+            f.write("\n")
+            
+            # Page table rows
+            for k, pt_config in enumerate(page_table_configs):
+                pgd_size, pud_size, pmd_size, pte_size = pt_config
+                pt_id = f"PT-{k+1} ({pgd_size},{pud_size},{pmd_size},{pte_size})"
+                f.write(f"| {pt_id} | ")
+                
+                # Results for each combination
+                for j, _ in enumerate(pwc_configs):
+                    idx = k * len(pwc_configs) + j
+                    if idx < len(workload_results):
+                        status = "✓" if workload_results[idx] else "✗"
+                        f.write(f"{status} | ")
+                    else:
+                        f.write("N/A | ")
+                f.write("\n")
+            
+            f.write("\n")
     
     print(f"Experiment completed. Results stored in: {exp_dir}")
     print(f"Summary report: {os.path.join(exp_dir, 'experiment_summary.md')}")
