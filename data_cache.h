@@ -143,6 +143,8 @@ class CacheHierarchy {
     DataCache l1Cache;
     DataCache l2Cache;
     DataCache l3Cache;
+
+   public:
     size_t memAccessCount;
 
    public:
@@ -160,6 +162,45 @@ class CacheHierarchy {
         l1Cache.setMemCounter(&memAccessCount);
         l2Cache.setMemCounter(&memAccessCount);
         l3Cache.setMemCounter(&memAccessCount);  // L3 writes to memory
+    }
+
+    // translation access start from L2, do not access L1
+    bool translate_access(ADDRINT paddr, UINT64& value, bool isWrite) {
+        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
+        // L2 access
+        if (l2Cache.access(l2CacheTag, value, isWrite)) {
+            return true;
+        }
+        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
+        // L3 access (on L1 & L2 miss)
+        if (l3Cache.access(l3CacheTag, value, isWrite)) {
+            // On L3 hit, fill L2
+            l2Cache.insert(l2CacheTag, value, false);
+            return true;
+        }
+
+        // Miss in all caches: access main memory
+        memAccessCount++;  // memory read for the new block
+        // Fill all levels with the new block (inclusive cache policy)
+        l3Cache.insert(l3CacheTag, value, false);
+        l2Cache.insert(l2CacheTag, value, false);
+        return false;
+    }
+
+    bool translate_lookup(ADDRINT paddr, UINT64& value) {
+        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
+        // L2 access
+        if (l2Cache.lookup(l2CacheTag, value))
+            return true;
+
+        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
+        // L3 access
+        if (l3Cache.lookup(l3CacheTag, value)) {
+            l2Cache.insert(l2CacheTag, value);  // Fill L2
+            return true;
+        }
+
+        return false;  // Miss in all caches
     }
 
     bool lookup(ADDRINT paddr, UINT64& value) {

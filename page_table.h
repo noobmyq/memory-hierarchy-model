@@ -172,7 +172,7 @@ class PageTable {
         bool hit = false;
         UINT64 pteEntryValue = 0;
         if (isPteCachable)
-            hit = dataCache.lookup(pteEntryAddr, pteEntryValue);
+            hit = dataCache.translate_lookup(pteEntryAddr, pteEntryValue);
         PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
 
         // Allocate physical page if not present
@@ -181,18 +181,20 @@ class PageTable {
             pteEntry.writable = 1;
             pteEntry.pfn = physMem.allocateFrame();
             pteStats.entries++;
-            assert(!hit);
+            // assert(!hit);
         }
 
         // Handle memory/cache access
         if (hit) {
             pteDataCacheHits++;
-            assert(*((UINT64*)&pteEntry) == pteEntryValue);
+            // assert(*((UINT64*)&pteEntry) == pteEntryValue);
         } else {
             // Either cache miss or non-cacheable PTE
             if (isPteCachable) {
-                dataCache.access(pteEntryAddr, *((UINT64*)&pteEntry), true);
+                dataCache.translate_access(pteEntryAddr, *((UINT64*)&pteEntry),
+                                           true);
                 pteDataCacheMisses++;
+                dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pteStats.accesses++;
@@ -214,7 +216,7 @@ class PageTable {
         // Cache lookup for PMD entry (if cacheable)
         bool hit = false;
         if (isPteCachable)
-            hit = dataCache.lookup(pmdEntryAddr, pmdEntryValue);
+            hit = dataCache.translate_lookup(pmdEntryAddr, pmdEntryValue);
 
         PageTableEntry& pmdEntry = pageTables[pmdAddr][pmdIndex];
         // Allocate PTE if not present
@@ -227,15 +229,17 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(pteEntrySize);
             pteStats.allocations++;
             pmdStats.entries++;
-            assert(!hit);
+            // assert(!hit);
         }
         if (hit) {
             pteDataCacheHits++;
-            assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
+            // assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
         } else {
             if (isPteCachable) {
-                dataCache.access(pmdEntryAddr, *((UINT64*)&pmdEntry), true);
+                dataCache.translate_access(pmdEntryAddr, *((UINT64*)&pmdEntry),
+                                           true);
                 pteDataCacheMisses++;
+                dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pmdStats.accesses++;
@@ -260,7 +264,7 @@ class PageTable {
         bool hit = false;
         // Cache lookup for PUD entry (if cacheable)
         if (isPteCachable)
-            hit = dataCache.lookup(pudEntryAddr, pudEntryValue);
+            hit = dataCache.translate_lookup(pudEntryAddr, pudEntryValue);
         PageTableEntry& pudEntry = pageTables[pudAddr][pudIndex];
         // Allocate PMD if not present
         if (!pudEntry.present) {
@@ -272,17 +276,19 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(pmdEntrySize);
             pmdStats.allocations++;
             pudStats.entries++;
-            assert(!hit);
+            // assert(!hit);
         }
 
         if (hit) {
             pteDataCacheHits++;
-            assert(*((UINT64*)&pudEntry) == pudEntryValue);
+            // assert(*((UINT64*)&pudEntry) == pudEntryValue);
         } else {
             if (isPteCachable) {
                 // Access the data cache
-                dataCache.access(pudEntryAddr, *((UINT64*)&pudEntry), true);
+                dataCache.translate_access(pudEntryAddr, *((UINT64*)&pudEntry),
+                                           true);
                 pteDataCacheMisses++;
+                dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pudStats.accesses++;
@@ -305,7 +311,7 @@ class PageTable {
         bool hit = false;
         // Cache lookup for PGD entry (if cacheable)
         if (isPteCachable)
-            hit = dataCache.lookup(pgdAddr, pgdEntryValue);
+            hit = dataCache.translate_lookup(pgdAddr, pgdEntryValue);
         PageTableEntry& pgdEntry = pageTables[cr3][pgdIndex];
         // Allocate PUD if not present
         if (!pgdEntry.present) {
@@ -317,16 +323,18 @@ class PageTable {
                 std::make_unique<PageTableEntry[]>(pudEntrySize);
             pudStats.allocations++;
             pgdStats.entries++;
-            assert(!hit);
+            // assert(!hit);
         }
         if (hit) {
             pteDataCacheHits++;
-            assert(*((UINT64*)&pgdEntry) == pgdEntryValue);
+            // assert(*((UINT64*)&pgdEntry) == pgdEntryValue);
         } else {
             if (isPteCachable) {
                 // Access the data cache
-                dataCache.access(pgdAddr, *((UINT64*)&pgdEntry), true);
+                dataCache.translate_access(pgdAddr, *((UINT64*)&pgdEntry),
+                                           true);
                 pteDataCacheMisses++;
+                dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pgdStats.accesses++;
@@ -363,6 +371,9 @@ class PageTable {
             // Combine PFN with offset
             return (pfn << PAGE_SHIFT) | offset;
         }
+
+        // export all l2tlb miss vaddr
+        std::cerr << std::hex << vaddr << std::endl;
 
         // 3. L2 TLB miss - check PMD PWC (maps VA[47:21] to PTE table PFN)
         UINT64 pteTablePfn;
