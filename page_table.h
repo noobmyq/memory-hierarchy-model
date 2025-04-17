@@ -372,9 +372,6 @@ class PageTable {
             return (pfn << PAGE_SHIFT) | offset;
         }
 
-        // export all l2tlb miss vaddr
-        std::cerr << std::hex << vaddr << std::endl;
-
         // 3. L2 TLB miss - check PMD PWC (maps VA[47:21] to PTE table PFN)
         UINT64 pteTablePfn;
         if (pmdPwc.lookup(vaddr, pteTablePfn)) {
