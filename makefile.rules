@@ -34,9 +34,10 @@ SANITY_SUBSET :=
 # Build rules
 #
 ##############################################################
+HEADER := cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb.h
 
 # Source Files
-TOOL_SRCS := memory_simulator.cpp cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb.h
+TOOL_SRCS := memory_simulator.cpp
 
 # Compiler Flags
 TOOL_CXXFLAGS += -std=c++17 -w -O3
@@ -47,13 +48,13 @@ TOOL_INCS += -I.
 # Link with Pin Libraries
 # TOOL_LIBS += -lpin
 
-OFFLINE_SRCS := memory_simulator_offline.cpp cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb.h
+OFFLINE_SRCS := memory_simulator_offline.cpp 
 # for offline analysis
-offline: $(OFFLINE_SRCS)
+offline: $(OFFLINE_SRCS) ${HEADER}
 	$(CXX) -std=c++17 -w -I. -O3 -o memory_simulator_offline $(OFFLINE_SRCS)
 	@echo "Offline analysis tool built successfully."
 
 # debug for offline
-debug: $(OFFLINE_SRCS)
+debug: $(OFFLINE_SRCS) ${HEADER}
 	$(CXX) -g -o memory_simulator_offline $(OFFLINE_SRCS)
 	@echo "Offline analysis tool built successfully with debug symbols."

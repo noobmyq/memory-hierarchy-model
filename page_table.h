@@ -98,7 +98,8 @@ class PageTable {
               size_t pudPwcWays = 4, size_t pmdPwcSize = 16,
               size_t pmdPwcWays = 4, size_t pgdEntrySize = 512,
               size_t pudEntrySize = 512, size_t pmdEntrySize = 512,
-              size_t pteEntrySize = 512)
+              size_t pteEntrySize = 512, bool TOCEnabled = false,
+              UINT32 TOCSize = 0)
         : physMem(physicalMemory),
           dataCache(dataCache),
           isPteCachable(isPteCachable),
@@ -138,6 +139,18 @@ class PageTable {
         assert((pmdEntrySize & (pmdEntrySize - 1)) == 0);
         assert((pteEntrySize & (pteEntrySize - 1)) == 0);
         assert(PGD_SHIFT + static_log2(pgdEntrySize) == 48);
+
+        if (TOCEnabled) {
+            assert(TOCSize > 0 && (TOCSize & (TOCSize - 1)) == 0);
+            pgdPwc.setTOCEnabled(true);
+            pgdPwc.setTOCSize(TOCSize);
+            pudPwc.setTOCEnabled(true);
+            pudPwc.setTOCSize(TOCSize);
+            pmdPwc.setTOCEnabled(true);
+            pmdPwc.setTOCSize(TOCSize);
+        } else {
+            assert(TOCSize == 0);
+        }
     }
 
     // Get indexes into the page tables for a given virtual address
@@ -371,9 +384,6 @@ class PageTable {
             // Combine PFN with offset
             return (pfn << PAGE_SHIFT) | offset;
         }
-
-        // export all l2tlb miss vaddr
-        std::cerr << std::hex << vaddr << std::endl;
 
         // 3. L2 TLB miss - check PMD PWC (maps VA[47:21] to PTE table PFN)
         UINT64 pteTablePfn;
