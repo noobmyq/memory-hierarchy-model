@@ -13,9 +13,9 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     UINT32 TOCSize = 4;    // Size of the table of contents (TOC) in bytes
     UINT32 TOCMask = 0;    // Mask for TOC size
 
-    typedef struct {
-        bool valid;    // Tag for the entry
-        UINT64 value;  // Pointer to the next level page table
+    typedef struct TOCEntry {
+        bool valid = false;  // Tag for the entry
+        UINT64 value = 0;    // Pointer to the next level page table
     } TOCEntry;
 
    protected:
@@ -54,7 +54,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     void setTOCSize(UINT32 size) {
         TOCSize = size;
         TOCMask = (size - 1) << indexBitsLow;
-        indexBitsLow = indexBitsLow + __builtin_ctz(size);
+        indexBitsLow += __builtin_ctz(size);
     }
     UINT32 getTOCSize() const { return TOCSize; }
 
@@ -71,7 +71,8 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
         if (TOCEnabled) {
             this->accesses++;
             size_t setIndex = getSetIndex(tag);
-            UINT32 TOCIndex = (tag & TOCMask) >> indexBitsLow;
+            UINT32 TOCIndex =
+                (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
 
             for (size_t way = 0; way < numWays; way++) {
                 if (sets[setIndex][way].valid &&
@@ -99,7 +100,8 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
         UINT64 tag = getTag(vaddr);
         if (TOCEnabled) {
             size_t setIndex = getSetIndex(tag);
-            UINT32 TOCIndex = (tag & TOCMask) >> indexBitsLow;
+            UINT32 TOCIndex =
+                (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
             for (size_t way = 0; way < numWays; way++) {
                 if (sets[setIndex][way].valid &&
                     sets[setIndex][way].tag == tag) {
@@ -128,7 +130,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
             // Allocate new TOC entry if needed
             sets[setIndex][way].value =
-                (UINT64) new TOCEntry[TOCSize];  // Allocate TOC entry
+                (UINT64) new TOCEntry[TOCSize]{};  // Allocate TOC entry
             TOCEntry* TOCPtr = (TOCEntry*)(sets[setIndex][way].value);
             for (UINT32 i = 0; i < TOCSize; i++) {
                 TOCPtr[i].valid = false;  // Initialize TOC entry to invalid

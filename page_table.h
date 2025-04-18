@@ -132,6 +132,8 @@ class PageTable {
         // Allocate the root page table (PGD)
         cr3 = physMem.allocateFrame() * MEMTRACE_PAGE_SIZE;
         pageTables[cr3] = std::make_unique<PageTableEntry[]>(pgdEntrySize);
+        // memset all entries to 0
+        std::fill_n(pageTables[cr3].get(), pgdEntrySize, PageTableEntry());
         pgdStats.allocations++;
         // assert that the page table entry is power of 2
         assert((pgdEntrySize & (pgdEntrySize - 1)) == 0);
@@ -240,6 +242,9 @@ class PageTable {
             UINT64 pteAddr = pmdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pteAddr] =
                 std::make_unique<PageTableEntry[]>(pteEntrySize);
+            // memset all entries to 0
+            std::fill_n(pageTables[pteAddr].get(), pteEntrySize,
+                        PageTableEntry());
             pteStats.allocations++;
             pmdStats.entries++;
             // assert(!hit);
@@ -287,6 +292,9 @@ class PageTable {
             UINT64 pmdAddr = pudEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pmdAddr] =
                 std::make_unique<PageTableEntry[]>(pmdEntrySize);
+            // memset all entries to 0
+            std::fill_n(pageTables[pmdAddr].get(), pmdEntrySize,
+                        PageTableEntry());
             pmdStats.allocations++;
             pudStats.entries++;
             // assert(!hit);
@@ -334,6 +342,9 @@ class PageTable {
             UINT64 pudAddr = pgdEntry.pfn * MEMTRACE_PAGE_SIZE;
             pageTables[pudAddr] =
                 std::make_unique<PageTableEntry[]>(pudEntrySize);
+            // memset all entries to 0
+            std::fill_n(pageTables[pudAddr].get(), pudEntrySize,
+                        PageTableEntry());
             pudStats.allocations++;
             pgdStats.entries++;
             // assert(!hit);

@@ -231,8 +231,8 @@ SimConfig parse_args(int argc, char* argv[]) {
                     "(default: 16)\n"
                  << "  --pmd_pwc_ways N          PMD PWC associativity "
                     "(default: 4)\n"
-                 << " ---TOCEnabled BOOL          Enable TOC (default: 0)\n"
-                 << "  --TOCSize N               TOC size in bytes "
+                 << " ---toc_enabled BOOL          Enable TOC (default: 0)\n"
+                 << "  --toc_size N               TOC size in bytes "
                     "(default: 0)\n"
                  << "  <trace_file>              Path to the trace file\n"
                  << endl;
@@ -289,9 +289,9 @@ SimConfig parse_args(int argc, char* argv[]) {
             config.pwc.pmdSize = std::stoull(argv[++i]);
         } else if (arg == "--pmd_pwc_ways" && i + 1 < argc) {
             config.pwc.pmdWays = std::stoull(argv[++i]);
-        } else if (arg == "--TOCEnabled" && i + 1 < argc) {
+        } else if (arg == "--toc_enabled" && i + 1 < argc) {
             config.pgtbl.TOCEnabled = (std::stoi(argv[++i]) != 0);
-        } else if (arg == "--TOCSize" && i + 1 < argc) {
+        } else if (arg == "--toc_size" && i + 1 < argc) {
             config.pgtbl.TOCSize = std::stoull(argv[++i]);
         } else if (config.trace_file.empty() && arg[0] != '-') {
             // Assume this is the trace file
