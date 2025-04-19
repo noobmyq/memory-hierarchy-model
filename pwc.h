@@ -110,7 +110,6 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
                     // Update TOC entry
                     TOCPtr[TOCIndex].valid = true;
                     TOCPtr[TOCIndex].value = nextLevelPfn;
-                    this->hits++;
                     updateLru(setIndex, way);
                     return;
                 }
