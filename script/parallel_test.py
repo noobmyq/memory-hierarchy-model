@@ -17,13 +17,43 @@ import datetime
 import itertools
 from typing import Tuple, List, Dict
 
+# Default configurations
+DEFAULT_PARALLEL_FACTOR = 2
+DEFAULT_RESULTS_BASE_DIR = 'experiment-results'
+DEFAULT_EXP_NAME = 'memory_simulation'
+DEFAULT_APPS_DIR = 'apps'
+DEFAULT_COMMON_PARAMS = (30, 32, 512, 1, 0, 0)  # phys_mem, l1_tlb, l2_tlb, pte_cachable, toc_enabled, toc_size
+
+# Page table size configurations
+DEFAULT_PAGE_TABLE_SIZES = [
+    # (512, 512, 512, 512),
+    (8, 4096, 4096, 512),
+    (16, 2048, 4096, 512),
+    (32, 2048, 2048, 512),
+    # (1, 2097152, 128, 256),
+]
+
+# Page walk cache (PWC) configurations
+DEFAULT_PWC_CONFIGS = [
+    # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways)
+    (4, 4, 4, 4, 16, 4),  # Baseline PWC configuration
+    # (16,4,16,4,64,4) # 4 times larger to validate TOC
+]
+
 # Define workload lists
 LARGE_WORKLOAD_LIST = [
-    {'name': 'BTree', 'options': ['700000', '100000']},
-    # {'name': 'mcf-static', 'options': ['inp.in']},
-    # {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2000', '-p', '40000']},
-    {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
-    {'name': 'gups-static', 'options': ['15']}
+    {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
+    {'name': 'xsbench-static', 'options': ['-t', '1']}, # ~5.5GB
+    # {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
+    {'name': 'gups-static', 'options': ['15']}, # ~8GB
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    {'name': 'graphbig/bfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    {'name': 'graphbig/dfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    {'name': 'graphbig/sssp', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    {'name': 'graphbig/tc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    {'name': 'graphbig/cc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+
 ]
 
 TINY_WORKLOAD_LIST = [
@@ -49,25 +79,19 @@ SIMULATOR_BASE_CMD = (
     '-pud_size {pud_size_pt} '
     '-pmd_size {pmd_size_pt} '
     '-pte_size {pte_size_pt} '
+    '-toc_enabled {toc_enabled} '
+    '-toc_size {toc_size} '
     '-o {output_file} '
     '-- {executable} {options}'
 )
 
 def generate_page_table_sizes():
     """Generate page table size configurations"""
-    return [
-        (512, 512, 512, 512),
-        (8, 4096, 4096, 512),
-        (32, 2048, 2048, 512),
-        (1, 2097152, 128, 256),
-    ]
+    return DEFAULT_PAGE_TABLE_SIZES
 
 def generate_pwc_configs():
     """Generate page walk cache configurations"""
-    return [
-        # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways)
-        (4,4,4,4,16,4),   # Baseline PWC configuration
-    ]
+    return DEFAULT_PWC_CONFIGS
 
 def run_one_experiment(config_data):
     """Run a single memory simulator experiment
@@ -84,7 +108,7 @@ def run_one_experiment(config_data):
     # Unpack configurations
     pgd_size_pt, pud_size_pt, pmd_size_pt, pte_size_pt = pt_config
     pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways = pwc_config
-    phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params
+    phys_mem, l1_tlb, l2_tlb, pte_cachable, toc_enabled, toc_size = common_params 
     
     # Create a unique ID for this run
     config_id = f"pgd{pgd_size_pt}_pud{pud_size_pt}_pmd{pmd_size_pt}_pte{pte_size_pt}_pwc{pgd_size}-{pud_size}-{pmd_size}"
@@ -121,6 +145,8 @@ def run_one_experiment(config_data):
             pud_size_pt=pud_size_pt,
             pmd_size_pt=pmd_size_pt,
             pte_size_pt=pte_size_pt,
+            toc_enabled=toc_enabled,
+            toc_size=toc_size,
             output_file=output_file,
             executable=executable,
             options=options
@@ -128,12 +154,17 @@ def run_one_experiment(config_data):
         
         # Execute simulator command
         print(f"Running: {workload['name']} with config {config_id}")
+        # redirect stderr and stdout to other files
+        progress_file = os.path.join(workload_dir, f"progress_{run_id}.txt")
+        progress_stream = open(progress_file, 'w')
+        # if open failed, use console
+        progress_stream = progress_stream if progress_stream else sys.stdout
         process = subprocess.run(
             run_cmd,
             shell=True,
             check=True,
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE
+            stdout=progress_stream,
+            stderr=subprocess.STDOUT,
         )
         
         # Create summary file with configuration information
@@ -159,6 +190,8 @@ def run_one_experiment(config_data):
             f.write(f"  L1 TLB Size: {l1_tlb}\n")
             f.write(f"  L2 TLB Size: {l2_tlb}\n")
             f.write(f"  PTE Cachable: {pte_cachable}\n\n")
+            f.write(f"  TOC Enabled: {toc_enabled}\n")
+            f.write(f"  TOC Size: {toc_size}\n\n")
             
             # Extract important statistics from output file
             if os.path.exists(output_file):
@@ -195,15 +228,15 @@ def main():
                         help='Workload type: large or tiny')
     parser.add_argument('-n', '--workload_num', type=int, 
                         help='Workload number (optional, if not provided, all workloads will be run)')
-    parser.add_argument('-p', '--parallel_factor', type=int, default=2, 
+    parser.add_argument('-p', '--parallel_factor', type=int, default=DEFAULT_PARALLEL_FACTOR, 
                         help='Parallelism factor (1=num_configs, 2=twice num_configs, etc.)')
-    parser.add_argument('-r', '--results_base_dir', type=str, default='experiment-results', 
+    parser.add_argument('-r', '--results_base_dir', type=str, default=DEFAULT_RESULTS_BASE_DIR, 
                         help='Base directory for all experiment results')
-    parser.add_argument('-e', '--exp_name', type=str, default='memory_simulation', 
+    parser.add_argument('-e', '--exp_name', type=str, default=DEFAULT_EXP_NAME, 
                         help='Name of the experiment')
     parser.add_argument('-u', '--exp_purpose', type=str, required=True, 
                         help='Purpose of the experiment (will be written to README)')
-    parser.add_argument('-a', '--apps_dir', type=str, default='apps', 
+    parser.add_argument('-a', '--apps_dir', type=str, default=DEFAULT_APPS_DIR, 
                         help='Directory containing the applications to test')
     args = parser.parse_args()
     
@@ -232,7 +265,7 @@ def main():
     pwc_configs = generate_pwc_configs()
     
     # Common parameters (fixed for all runs)
-    common_params = (30, 32, 512, 1)  # phys_mem, l1_tlb, l2_tlb, pte_cachable
+    common_params = DEFAULT_COMMON_PARAMS
     
     # Create README.md in the experiment directory
     with open(os.path.join(exp_dir, "README.md"), 'w') as f:
@@ -262,11 +295,15 @@ def main():
             f.write(f"- PMD PWC Size: {pmd_size}, Ways: {pmd_ways}\n\n")
         
         f.write(f"## Common Parameters\n")
-        phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params
+        phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params[:4]
         f.write(f"- Physical Memory: {phys_mem} GB\n")
         f.write(f"- L1 TLB Size: {l1_tlb}\n")
         f.write(f"- L2 TLB Size: {l2_tlb}\n")
         f.write(f"- PTE Cachable: {pte_cachable}\n\n")
+        f.write(f"## TOC Parameters\n")
+        toc_enabled, toc_size = common_params[4:]
+        f.write(f"- TOC Enabled: {toc_enabled}\n")
+        f.write(f"- TOC Size: {toc_size}\n\n")
     
     # Select workload list
     workload_list = LARGE_WORKLOAD_LIST if args.workload_type == 'large' else TINY_WORKLOAD_LIST
@@ -298,8 +335,8 @@ def main():
                                    args.exp_name, args.exp_purpose, common_params))
     
     # Calculate parallelism level
-    total_configs = len(page_table_configs) * len(pwc_configs)
-    num_workers = min(total_configs * args.parallel_factor, len(configs))
+    total_configs = len(page_table_configs) * len(pwc_configs) * len(workload_list)
+    num_workers = min(total_configs * args.parallel_factor, len(configs), 10)
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
     # Start timing
