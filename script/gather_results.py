@@ -94,60 +94,91 @@ def parse_output_file(file_path):
         metrics['toc_size'] = match.group(1)
     
     # Extract translation path statistics
-    # These will now be used for counts only, not hit rates
+    # L1 TLB hits (0 memory requests)
     match = re.search(r'L1 TLB Hit\s+(\d+)\s+([\d\.]+)%', content)
     if match:
-        metrics['l1_tlb_hit_count'] = match.group(1)
+        metrics['l1_tlb_hit_count'] = int(match.group(1))
+    else:
+        metrics['l1_tlb_hit_count'] = 0
     
+    # L2 TLB hits (0 memory requests)
     match = re.search(r'L2 TLB Hit\s+(\d+)\s+([\d\.]+)%', content)
     if match:
-        metrics['l2_tlb_hit_count'] = match.group(1)
+        metrics['l2_tlb_hit_count'] = int(match.group(1))
+    else:
+        metrics['l2_tlb_hit_count'] = 0
     
+    # PMD PWC hits (1 memory request)
+    match = re.search(r'PMD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
+    if match:
+        metrics['pmd_pwc_hit_count'] = int(match.group(1))
+    else:
+        metrics['pmd_pwc_hit_count'] = 0
+    
+    # PUD PWC hits (2 memory requests)
+    match = re.search(r'PUD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
+    if match:
+        metrics['pud_pwc_hit_count'] = int(match.group(1))
+    else:
+        metrics['pud_pwc_hit_count'] = 0
+    
+    # PGD PWC hits (3 memory requests)
+    match = re.search(r'PGD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
+    if match:
+        metrics['pgd_pwc_hit_count'] = int(match.group(1))
+    else:
+        metrics['pgd_pwc_hit_count'] = 0
+    
+    # Full page walks (4 memory requests)
+    match = re.search(r'Full Page Walk\s+(\d+)\s+([\d\.]+)?%?', content)
+    if match:
+        metrics['full_page_walk_count'] = int(match.group(1))
+    else:
+        metrics['full_page_walk_count'] = 0
+    
+    # Total translations
+    match = re.search(r'Total Translations\s+(\d+)', content)
+    if match:
+        metrics['total_translations'] = int(match.group(1))
+    
+    # TLB Efficiency
     match = re.search(r'TLB Efficiency:\s+([\d\.]+)%', content)
     if match:
         metrics['tlb_efficiency'] = match.group(1)
-    
-    match = re.search(r'PMD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
-    if match:
-        metrics['pmd_pwc_hit_count'] = match.group(1)
-    
-    match = re.search(r'PUD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
-    if match:
-        metrics['pud_pwc_hit_count'] = match.group(1)
-    
-    match = re.search(r'PGD PWC Hit\s+(\d+)\s+([\d\.]+)%', content)
-    if match:
-        metrics['pgd_pwc_hit_count'] = match.group(1)
     
     # Extract cache statistics (the correct hit rates and access counts)
     # L1 TLB hit rate and accesses
     match = re.search(r'L1 TLB\s+\d+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+([\d\.]+)%', content)
     if match:
-        metrics['l1_tlb_accesses'] = match.group(1)
+        metrics['l1_tlb_accesses'] = int(match.group(1))
         metrics['l1_tlb_hit_percentage'] = match.group(2)
+        
+        # Use L1 TLB accesses as the total number of translations if not found earlier
+        if 'total_translations' not in metrics:
+            metrics['total_translations'] = metrics['l1_tlb_accesses']
     
     # L2 TLB hit rate and accesses
     match = re.search(r'L2 TLB\s+\d+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+([\d\.]+)%', content)
     if match:
-        metrics['l2_tlb_accesses'] = match.group(1)
+        metrics['l2_tlb_accesses'] = int(match.group(1))
         metrics['l2_tlb_hit_percentage'] = match.group(2)
     
     # PGD hit rate and accesses
     match = re.search(r'PML4E Cache \(PGD\)\s+\d+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+([\d\.]+)%', content)
     if match:
-        metrics['pgd_pwc_accesses'] = match.group(1)
+        metrics['pgd_pwc_accesses'] = int(match.group(1))
         metrics['pgd_pwc_hit_percentage'] = match.group(2)
     
     # PUD hit rate and accesses
     match = re.search(r'PDPTE Cache \(PUD\)\s+\d+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+([\d\.]+)%', content)
     if match:
-        metrics['pud_pwc_accesses'] = match.group(1)
+        metrics['pud_pwc_accesses'] = int(match.group(1))
         metrics['pud_pwc_hit_percentage'] = match.group(2)
     
     # PMD hit rate and accesses
     match = re.search(r'PDE Cache \(PMD\)\s+\d+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+([\d\.]+)%', content)
     if match:
-        metrics['pmd_pwc_accesses'] = match.group(1)
+        metrics['pmd_pwc_accesses'] = int(match.group(1))
         metrics['pmd_pwc_hit_percentage'] = match.group(2)
     
     # Extract page table statistics
@@ -162,15 +193,15 @@ def parse_output_file(file_path):
     # Extract cache access statistics
     match = re.search(r'Page Table Entry data Cache Hits\s+(\d+)', content)
     if match:
-        metrics['pte_cache_hits'] = match.group(1)
+        metrics['pte_cache_hits'] = int(match.group(1))
     
     match = re.search(r'Page Table Entry data Cache Misses\s+(\d+)', content)
     if match:
-        metrics['pte_cache_misses'] = match.group(1)
+        metrics['pte_cache_misses'] = int(match.group(1))
     
     match = re.search(r'Page Walk Memory Accesses\s+(\d+)', content)
     if match:
-        metrics['page_walk_memory_accesses'] = match.group(1)
+        metrics['page_walk_memory_accesses'] = int(match.group(1))
     
     match = re.search(r'Page Table Entry Cache hits ratio\s+([\d\.]+)%', content)
     if match:
@@ -179,11 +210,48 @@ def parse_output_file(file_path):
     # Extract memory cost statistics
     match = re.search(r'Memory Accesses:\s+(\d+)', content)
     if match:
-        metrics['memory_accesses'] = match.group(1)
+        metrics['memory_accesses'] = int(match.group(1))
     
     match = re.search(r'Total Access Cost \(cycles\):\s+(\d+)', content)
     if match:
         metrics['total_access_cost_cycles'] = match.group(1)
+    
+    # Calculate average memory requests per translation based on path statistics
+    # Each path has a different memory request count:
+    # - L1 TLB Hit: 0 memory requests
+    # - L2 TLB Hit: 0 memory requests
+    # - PMD PWC Hit: 1 memory request (miss L1 & L2 TLB, access PMD)
+    # - PUD PWC Hit: 2 memory requests (miss L1 & L2 TLB, miss PMD, access PUD)
+    # - PGD PWC Hit: 3 memory requests (miss L1 & L2 TLB, miss PMD, miss PUD, access PGD)
+    # - Full Page Walk: 4 memory requests (miss all caches, do full memory walk)
+    
+    if 'total_translations' in metrics and metrics['total_translations'] > 0:
+        # Multiply each path count by its memory request count
+        l1_tlb_memory_requests = 0 * metrics['l1_tlb_hit_count']
+        l2_tlb_memory_requests = 0 * metrics['l2_tlb_hit_count']
+        pmd_pwc_memory_requests = 1 * metrics['pmd_pwc_hit_count']
+        pud_pwc_memory_requests = 2 * metrics['pud_pwc_hit_count']
+        pgd_pwc_memory_requests = 3 * metrics['pgd_pwc_hit_count']
+        full_walk_memory_requests = 4 * metrics['full_page_walk_count']
+        
+        # Sum up all memory requests
+        total_memory_requests = (l1_tlb_memory_requests + l2_tlb_memory_requests + 
+                                pmd_pwc_memory_requests + pud_pwc_memory_requests + 
+                                pgd_pwc_memory_requests + full_walk_memory_requests)
+        
+        # Calculate average
+        avg_memory_requests = total_memory_requests / metrics['total_translations']
+        metrics['avg_memory_requests_per_translation'] = round(avg_memory_requests, 6)
+    
+    # Calculate average memory request per walk, the denominator is now pmd pwc accesses
+    if 'pmd_pwc_accesses' in metrics and metrics['pmd_pwc_accesses'] > 0:
+        avg_memory_requests_per_walk = total_memory_requests / metrics['pmd_pwc_accesses']
+        metrics['avg_memory_requests_per_walk'] = round(avg_memory_requests_per_walk, 6)
+
+    # Convert numeric metrics back to strings for consistency
+    for key in metrics:
+        if isinstance(metrics[key], (int, float)):
+            metrics[key] = str(metrics[key])
     
     return metrics
 
@@ -351,6 +419,9 @@ def define_column_order():
         'pud_pwc_hit_count', 'pud_pwc_accesses', 'pud_pwc_hit_percentage',
         'pmd_pwc_hit_count', 'pmd_pwc_accesses', 'pmd_pwc_hit_percentage',
         
+        # Memory request statistics
+        'avg_memory_requests_per_translation',
+        
         # Page table statistics
         'total_page_tables', 'page_table_memory_mb',
         
@@ -467,7 +538,7 @@ def create_summary_df(df):
         'l1_tlb_hit_percentage', 'l2_tlb_hit_percentage', 'tlb_efficiency',
         'pgd_pwc_hit_percentage', 'pud_pwc_hit_percentage', 'pmd_pwc_hit_percentage',
         'page_table_memory_mb', 'pte_cache_hit_ratio',
-        'total_access_cost_cycles'
+        'total_access_cost_cycles', 'avg_memory_requests_per_translation'
     ]
     
     for col in numeric_columns:
@@ -523,7 +594,7 @@ def create_toc_comparative_df(df):
         'l1_tlb_hit_percentage', 'l2_tlb_hit_percentage', 'tlb_efficiency',
         'pgd_pwc_hit_percentage', 'pud_pwc_hit_percentage', 'pmd_pwc_hit_percentage',
         'page_table_memory_mb', 'pte_cache_hit_ratio',
-        'total_access_cost_cycles'
+        'total_access_cost_cycles', 'avg_memory_requests_per_translation'
     ]
     
     for col in numeric_columns:
@@ -570,8 +641,8 @@ def create_toc_comparative_df(df):
             disabled_col = f'toc_disabled_{col}'
             
             if enabled_col in comparative_df.columns and disabled_col in comparative_df.columns:
-                # For cycle counts, lower is better
-                if col == 'total_access_cost_cycles':
+                # For cycle counts and memory requests, lower is better
+                if col in ['total_access_cost_cycles', 'avg_memory_requests_per_translation']:
                     comparative_df[f'{col}_improvement'] = (
                         (comparative_df[disabled_col] - comparative_df[enabled_col]) / 
                         comparative_df[disabled_col] * 100
@@ -619,7 +690,7 @@ def main():
     if args.all or args.output:
         save_dataframe_with_ordered_columns(df, args.output)
     
-    # Write per-timestamp CSVs (new functionality)
+    # Write per-timestamp CSVs
     if args.all or args.timestamp_csvs:
         create_timestamp_csvs(df, args.timestamp_csvs)
     

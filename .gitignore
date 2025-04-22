@@ -3,4 +3,6 @@ memory_simulator*
 .vscode
 !memory_simulator*.cpp
 experiment-results
+script/**/*.csv
+script/**/*.png
 .clangd
