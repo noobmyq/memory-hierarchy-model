@@ -20,9 +20,10 @@ see `memory_simulator.cpp` for simulator options
 - [x] 3 level cache
 - [x] Page table contents cachable
 - [x] Integrate with pin
+- [x] TOC in pwc
 
 ## TODO
-- [] TOC in pwc
-- [] TODO
+- [] Prefetch
+- [] TODO (keep recursive)
 
 ## Optimization

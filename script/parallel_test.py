@@ -22,14 +22,15 @@ DEFAULT_PARALLEL_FACTOR = 2
 DEFAULT_RESULTS_BASE_DIR = 'experiment-results'
 DEFAULT_EXP_NAME = 'memory_simulation'
 DEFAULT_APPS_DIR = 'apps'
-DEFAULT_COMMON_PARAMS = (30, 32, 512, 1, 0, 0)  # phys_mem, l1_tlb, l2_tlb, pte_cachable, toc_enabled, toc_size
+DEFAULT_COMMON_PARAMS = (30, 32, 512, 1)  # phys_mem, l1_tlb, l2_tlb, pte_cachable
+DEFAULT_TOC_CONFIG = [(0, 0), (1, 4)]  # toc_enabled, toc_size
 
 # Page table size configurations
 DEFAULT_PAGE_TABLE_SIZES = [
-    # (512, 512, 512, 512),
+    (512, 512, 512, 512),
     (8, 4096, 4096, 512),
-    (16, 2048, 4096, 512),
-    (32, 2048, 2048, 512),
+    # (16, 2048, 4096, 512),
+    # (32, 2048, 2048, 512),
     # (1, 2097152, 128, 256),
 ]
 
@@ -37,22 +38,24 @@ DEFAULT_PAGE_TABLE_SIZES = [
 DEFAULT_PWC_CONFIGS = [
     # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways)
     (4, 4, 4, 4, 16, 4),  # Baseline PWC configuration
-    # (16,4,16,4,64,4) # 4 times larger to validate TOC
+    (4,4,4,4,32,8),
+    (16,4,16,4,64,4), # 4 times larger to validate TOC
+    # (16,4,16,4,128,16),
 ]
 
 # Define workload lists
 LARGE_WORKLOAD_LIST = [
+    # {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
     {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
     {'name': 'xsbench-static', 'options': ['-t', '1']}, # ~5.5GB
-    # {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
     {'name': 'gups-static', 'options': ['15']}, # ~8GB
     {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
-    {'name': 'graphbig/bfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
-    {'name': 'graphbig/dfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    # {'name': 'graphbig/bfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    # {'name': 'graphbig/dfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
     {'name': 'graphbig/sssp', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
     {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
-    {'name': 'graphbig/tc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
-    {'name': 'graphbig/cc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    # {'name': 'graphbig/tc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    # {'name': 'graphbig/cc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
 
 ]
 
@@ -98,20 +101,21 @@ def run_one_experiment(config_data):
     
     Parameters:
     - config_data: A tuple containing:
-        (pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params)
+        (pt_config, pwc_config, toc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params)
     
     Returns:
     - True if experiment completed successfully, False otherwise
     """
-    pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params = config_data
+    pt_config, pwc_config, toc_config, workload, workload_path, base_dir, exp_dir, exp_name, exp_purpose, common_params = config_data
     
     # Unpack configurations
     pgd_size_pt, pud_size_pt, pmd_size_pt, pte_size_pt = pt_config
     pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways = pwc_config
-    phys_mem, l1_tlb, l2_tlb, pte_cachable, toc_enabled, toc_size = common_params 
+    toc_enabled, toc_size = toc_config
+    phys_mem, l1_tlb, l2_tlb, pte_cachable = common_params
     
     # Create a unique ID for this run
-    config_id = f"pgd{pgd_size_pt}_pud{pud_size_pt}_pmd{pmd_size_pt}_pte{pte_size_pt}_pwc{pgd_size}-{pud_size}-{pmd_size}"
+    config_id = f"pgd{pgd_size_pt}_pud{pud_size_pt}_pmd{pmd_size_pt}_pte{pte_size_pt}_pwc{pgd_size}-{pud_size}-{pmd_size}_toc{toc_enabled}-{toc_size}"
     run_id = f"{config_id}_{uuid.uuid4().hex[:6]}"
     
     # Create workload directory if it doesn't exist
@@ -159,6 +163,7 @@ def run_one_experiment(config_data):
         progress_stream = open(progress_file, 'w')
         # if open failed, use console
         progress_stream = progress_stream if progress_stream else sys.stdout
+        run_cmd = f"numactl --cpunodebind=0 --membind=0 {run_cmd}"
         process = subprocess.run(
             run_cmd,
             shell=True,
@@ -263,6 +268,7 @@ def main():
     # Generate configurations
     page_table_configs = generate_page_table_sizes()
     pwc_configs = generate_pwc_configs()
+    toc_configs = DEFAULT_TOC_CONFIG  # Add TOC configurations
     
     # Common parameters (fixed for all runs)
     common_params = DEFAULT_COMMON_PARAMS
@@ -301,9 +307,9 @@ def main():
         f.write(f"- L2 TLB Size: {l2_tlb}\n")
         f.write(f"- PTE Cachable: {pte_cachable}\n\n")
         f.write(f"## TOC Parameters\n")
-        toc_enabled, toc_size = common_params[4:]
-        f.write(f"- TOC Enabled: {toc_enabled}\n")
-        f.write(f"- TOC Size: {toc_size}\n\n")
+        for toc_enabled, toc_size in toc_configs:
+            f.write(f"- TOC Enabled: {toc_enabled}\n")
+            f.write(f"- TOC Size: {toc_size}\n\n")
     
     # Select workload list
     workload_list = LARGE_WORKLOAD_LIST if args.workload_type == 'large' else TINY_WORKLOAD_LIST
@@ -317,25 +323,27 @@ def main():
     if args.workload_num is not None and (args.workload_num < 0 or args.workload_num >= len(workload_list)):
         parser.error(f"Workload number must be between 0 and {len(workload_list)-1}")
     
-    # Create experiment configurations with permutations of page table sizes and PWC configs
+    # Create experiment configurations with permutations of page table sizes, PWC configs, and TOC configs
     configs = []
     if args.workload_num is not None:
         workload = workload_list[args.workload_num]
         workload_path = os.path.join(workload_base_dir, workload['name'])
         for pt_config in page_table_configs:
             for pwc_config in pwc_configs:
-                configs.append((pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, 
-                               args.exp_name, args.exp_purpose, common_params))
+                for toc_config in toc_configs:
+                    configs.append((pt_config, pwc_config, toc_config, workload, workload_path, base_dir, exp_dir, 
+                                   args.exp_name, args.exp_purpose, common_params))
     else:
         for workload in workload_list:
             workload_path = os.path.join(workload_base_dir, workload['name'])
             for pt_config in page_table_configs:
                 for pwc_config in pwc_configs:
-                    configs.append((pt_config, pwc_config, workload, workload_path, base_dir, exp_dir, 
-                                   args.exp_name, args.exp_purpose, common_params))
+                    for toc_config in toc_configs:
+                        configs.append((pt_config, pwc_config, toc_config, workload, workload_path, base_dir, exp_dir, 
+                                       args.exp_name, args.exp_purpose, common_params))
     
     # Calculate parallelism level
-    total_configs = len(page_table_configs) * len(pwc_configs) * len(workload_list)
+    total_configs = len(page_table_configs) * len(pwc_configs) * len(toc_configs) * len(workload_list)
     num_workers = min(total_configs * args.parallel_factor, len(configs), 10)
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
