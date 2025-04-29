@@ -16,6 +16,7 @@ import seaborn as sns
 from pathlib import Path
 import glob
 import re
+import adjustText
 
 # Define some color palettes for different configuration groups
 CONFIG_COLORS = plt.cm.tab20(np.linspace(0, 1, 20))
@@ -173,6 +174,23 @@ def get_config_label(row, config_columns):
                 parts.append(f"{col_label}={row[col]}")
     return ", ".join(parts)
 
+def sort_configs(df, config_columns):
+    """
+    Sort configurations based on specified keys.
+    
+    Args:
+        df: pandas DataFrame
+        config_columns: List of column names to define the sort order
+        
+    Returns:
+        A sorted pandas DataFrame
+    """
+    sort_keys = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size', 
+                 'pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries', 'toc_enabled', 'toc_size']
+    # Ensure sort_keys are in the DataFrame
+    sort_keys = [key for key in sort_keys if key in df.columns]
+    return df.sort_values(by=sort_keys)
+
 def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_file=None, 
                    sort_bars=False, fig_size=(14, 8), timestamp_label=None):
     """
@@ -206,6 +224,7 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
         if 'timestamp' not in df.columns:
             df['timestamp'] = timestamp_label
     
+
     # Create a configuration ID by combining specified columns
     df['config_id'] = df.apply(lambda row: get_config_label(row, config_columns), axis=1)
     
@@ -217,8 +236,12 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
     
     # Get unique x values and configurations
     x_values = sorted(df[x_column].unique())
-    configs = sorted(df['config_id'].unique())
     
+    # Sort configurations based on specified keys
+    df = sort_configs(df, config_columns)
+    
+    configs = (df['config_id'].unique())
+
     # The number of bars for each x value
     n_configs = len(configs)
     
@@ -232,6 +255,7 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
     plt.subplots_adjust(top=0.85)
     
     # Plotting
+    all_text = []
     for i, config in enumerate(configs):
         # Get data for this configuration
         config_data = grouped[grouped['config_id'] == config]
@@ -276,9 +300,12 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
                 
             # Position the text above the bar
             height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.01 * max(values),
-                    value_text, ha='center', va='bottom', rotation=45, fontsize=8)
+            all_text.append(ax.text(bar.get_x() + bar.get_width()/2., height + 0.01 * max(values),
+                    value_text, ha='center', va='bottom', rotation=45, fontsize=8))
     
+    # Adjust text positions to avoid overlap
+    # adjustText.adjust_text(all_text, arrowprops=dict(arrowstyle="-", color='grey'), 
+    #                        only_move={'points': 'y', 'text': 'y'})
     # Add labels and title
     ax.set_xlabel(x_column.replace('_', ' ').title())
     ax.set_ylabel(y_column.replace('_', ' ').title())
@@ -297,11 +324,9 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
     ax.set_xticks(indices)
     ax.set_xticklabels(x_values, rotation=45, ha='right')
     
-    # Add a legend below the title but above the plot
-    # Calculate number of columns based on number of configs
+    # Add a legend below the x-axis
     ncols = min(1, n_configs)
-    # Place legend at the top of the figure
-    ax.legend(loc='upper center', ncol=ncols, fontsize='small')
+    ax.legend(loc='upper center', ncol=ncols, fontsize='small', bbox_to_anchor=(0.5, -0.15))
     
     # Adjust layout
     plt.tight_layout()
@@ -363,8 +388,13 @@ def create_grouped_bar_plot(df, x_column, y_column, group_column, config_columns
     # Get unique values
     x_values = sorted(df[x_column].unique())
     group_values = sorted(df[group_column].unique())
-    configs = sorted(df['config_id'].unique())
     
+    # Sort configurations based on specified keys
+    df = sort_configs(df, config_columns)
+
+    # Extract unique configurations after sorting
+    configs = sorted(df['config_id'].unique())
+
     # The number of groups
     n_groups = len(group_values)
     
@@ -456,11 +486,9 @@ def create_grouped_bar_plot(df, x_column, y_column, group_column, config_columns
     ax.set_xticks(indices)
     ax.set_xticklabels(x_values, rotation=45, ha='right')
     
-    # Add a legend below the title but above the plot
-    # Calculate number of columns based on number of configs
+    # Add a legend below the x-axis
     ncols = min(3, len(configs) * n_groups)
-    # Place legend at the top of the figure
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=ncols, fontsize='small')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=ncols, fontsize='small')
     
     # Adjust layout
     plt.tight_layout()
@@ -843,7 +871,7 @@ def interactive_mode(timestamp_files, experiment_names):
     # Filter selection
     filters = {}
     print("\n=== Filter Selection ===")
-    print("Would you like to apply filters? (y/n)")
+    print("Would you like to apply filters? (y/[N])")
     filter_choice = input().lower()
     
     if filter_choice == 'y':
@@ -869,8 +897,11 @@ def interactive_mode(timestamp_files, experiment_names):
     
     # Sort option
     print("\n=== Sort Option ===")
-    print("Sort bars by y-value? (y/n)")
+    print("Sort bars by y-value? ([Y]/n)")
     sort_choice = input().lower()
+    # if no input, default to 'y'
+    if not sort_choice:
+        sort_choice = 'y'
     sort_bars = sort_choice == 'y'
     
     # Multiple timestamp comparison option
@@ -892,8 +923,11 @@ def interactive_mode(timestamp_files, experiment_names):
     
     # Output file option
     print("\n=== Output File ===")
-    print("Save plots to files? (y/n)")
+    print("Save plots to files? ([Y]/n)")
     save_choice = input().lower()
+    # if no input, default to 'y'
+    if not save_choice:
+        save_choice = 'y'
     
     output_dir = None
     if save_choice == 'y':

@@ -23,12 +23,18 @@ DEFAULT_RESULTS_BASE_DIR = 'experiment-results'
 DEFAULT_EXP_NAME = 'memory_simulation'
 DEFAULT_APPS_DIR = 'apps'
 DEFAULT_COMMON_PARAMS = (30, 32, 512, 1)  # phys_mem, l1_tlb, l2_tlb, pte_cachable
-DEFAULT_TOC_CONFIG = [(0, 0), (1, 4)]  # toc_enabled, toc_size
+DEFAULT_TOC_CONFIG = [
+    (1,8), 
+    # (1,4),
+    (0,0)
+]  # toc_enabled, toc_size
 
 # Page table size configurations
 DEFAULT_PAGE_TABLE_SIZES = [
     (512, 512, 512, 512),
+    # (8, 2048, 2048, 2048),
     (8, 4096, 4096, 512),
+    (4, 2048, 4096, 2048)
     # (16, 2048, 4096, 512),
     # (32, 2048, 2048, 512),
     # (1, 2097152, 128, 256),
@@ -38,12 +44,19 @@ DEFAULT_PAGE_TABLE_SIZES = [
 DEFAULT_PWC_CONFIGS = [
     # Format: (pgd_size, pgd_ways, pud_size, pud_ways, pmd_size, pmd_ways)
     (4, 4, 4, 4, 16, 4),  # Baseline PWC configuration
-    (4,4,4,4,32,8),
+    # (4,4,4,4,32,8),
     (16,4,16,4,64,4), # 4 times larger to validate TOC
     # (16,4,16,4,128,16),
 ]
 
 # Define workload lists
+HUGE_WORKLOAD_LIST = [
+    {'name': 'gups-static', 'options': ['20']}, # ~16GB
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
+    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
+
+]
+
 LARGE_WORKLOAD_LIST = [
     # {'name': 'seq-list-static', 'options': ['-s', '15', '-e', '15']},
     {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
@@ -59,10 +72,29 @@ LARGE_WORKLOAD_LIST = [
 
 ]
 
+MIDDLE_WORKLOAD_LIST = [
+    {'name': 'BTree', 'options': ['30000000', '100000']}, # ~3.1GB
+    {'name': 'xsbench-static', 'options': ['-t', '1']}, # ~2.5GB
+    {'name': 'gups-static', 'options': ['5']}, # ~4GB
+    # {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    # {'name': 'graphbig/bfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    # {'name': 'graphbig/dfs', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    # {'name': 'graphbig/sssp', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.8G
+    # {'name': 'graphbig/tc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+    # {'name': 'graphbig/cc', 'options': ['--dataset', '~/workload/graphbig/datagen-7_5-fb', '--separator', '\' \'']}, #~9.6G
+
+
+]
+
 TINY_WORKLOAD_LIST = [
-    {'name': 'hello-static'},
-    {'name': 'BTree', 'options': ['1', '1']},
-    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2', '-p', '3']},
+    # {'name': 'graph500_reference_bfs', 'options': ['20', '20']} #~1.01GB, run even slower
+    # {'name': 'seq-list-static', 'options': ['-s', '20', '-e', '20']}, #~697MB, run very slow
+    {'name': 'BTree', 'options': ['700000', '100000']}, # ~71MB
+    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2000', '-p', '40000']}, #~1.01GB
+    {'name': 'gups-static', 'options': ['10']}, # ~8.0G
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-2']}, #~4.33GB
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-2']}, #~4.26GB
 ]
 
 # Base simulator command template
@@ -95,6 +127,10 @@ def generate_page_table_sizes():
 def generate_pwc_configs():
     """Generate page walk cache configurations"""
     return DEFAULT_PWC_CONFIGS
+
+global_lock = multiprocessing.Lock()
+manager = multiprocessing.Manager()
+cpu_affinity_counter = manager.Value('i', 0)
 
 def run_one_experiment(config_data):
     """Run a single memory simulator experiment
@@ -133,6 +169,14 @@ def run_one_experiment(config_data):
         executable = workload_path
         options = ' '.join(workload['options']) if 'options' in workload else ''
         
+        # if we are running "graph500_reference_bfs*", we need to set cpu affinity differently for each thread
+        global cpu_affinity_counter
+        cpu_affinity = ""
+        if workload['name'] == 'graph500_reference_bfs':
+            with global_lock:
+                
+                cpu_affinity = f"taskset -c {cpu_affinity_counter.value % 10} "
+                cpu_affinity_counter.value += 1
         # Format the simulator command
         run_cmd = SIMULATOR_BASE_CMD.format(
             pgd_size=pgd_size,
@@ -155,7 +199,11 @@ def run_one_experiment(config_data):
             executable=executable,
             options=options
         )
-        
+
+        # Add CPU affinity if needed
+        if cpu_affinity:
+            run_cmd = f"export SKIP_VALIDATION=1; {cpu_affinity} {run_cmd}"
+
         # Execute simulator command
         print(f"Running: {workload['name']} with config {config_id}")
         # redirect stderr and stdout to other files
@@ -229,7 +277,7 @@ def run_one_experiment(config_data):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run memory simulator with different configurations in parallel')
-    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny'], required=True, 
+    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny', 'middle', 'huge'], required=True, 
                         help='Workload type: large or tiny')
     parser.add_argument('-n', '--workload_num', type=int, 
                         help='Workload number (optional, if not provided, all workloads will be run)')
@@ -312,7 +360,19 @@ def main():
             f.write(f"- TOC Size: {toc_size}\n\n")
     
     # Select workload list
-    workload_list = LARGE_WORKLOAD_LIST if args.workload_type == 'large' else TINY_WORKLOAD_LIST
+    # workload_list = LARGE_WORKLOAD_LIST if args.workload_type == 'large' else TINY_WORKLOAD_LIST
+   
+    if args.workload_type == 'large':
+        workload_list = LARGE_WORKLOAD_LIST
+    elif args.workload_type == 'huge':
+        workload_list = HUGE_WORKLOAD_LIST
+    elif args.workload_type == 'middle':
+        workload_list = MIDDLE_WORKLOAD_LIST
+    elif args.workload_type == 'tiny':
+        workload_list = TINY_WORKLOAD_LIST
+    else:
+        parser.error("Invalid workload type. Choose 'large', 'middle', or 'tiny'.")
+        exit(1)
     
     # assert all workloads exist
     for workload in workload_list:
@@ -344,7 +404,7 @@ def main():
     
     # Calculate parallelism level
     total_configs = len(page_table_configs) * len(pwc_configs) * len(toc_configs) * len(workload_list)
-    num_workers = min(total_configs * args.parallel_factor, len(configs), 10)
+    num_workers = min(total_configs * args.parallel_factor, len(configs), 8 if args.workload_type == 'huge' else 16)
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
     # Start timing
@@ -385,7 +445,8 @@ def main():
                 f.write(f"- Options: {' '.join(workload['options'])}\n")
             
             # Count successful runs for this workload
-            workload_configs = [c for c in configs if c[2]['name'] == workload['name']]
+            # workload_configs = [c for c in configs if c[2]['name'] == workload['name']]
+            workload_configs = [c for c in configs if c[3]['name'] == workload['name']]
             workload_result_count = len(workload_configs)
             workload_results = results[processed_results:processed_results + workload_result_count]
             processed_results += workload_result_count
