@@ -202,14 +202,13 @@ class PageTable {
         // Handle memory/cache access
         if (hit) {
             pteDataCacheHits++;
-            // assert(*((UINT64*)&pteEntry) == pteEntryValue);
         } else {
             // Either cache miss or non-cacheable PTE
             if (isPteCachable) {
-                dataCache.translate_access(pteEntryAddr, *((UINT64*)&pteEntry),
-                                           true);
+                // dataCache.translate_lookup(pteEntryAddr, *((UINT64*)&pteEntry),
+                //                            true);
                 pteDataCacheMisses++;
-                dataCache.memAccessCount++;
+                // dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pteStats.accesses++;
@@ -254,10 +253,10 @@ class PageTable {
             // assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
         } else {
             if (isPteCachable) {
-                dataCache.translate_access(pmdEntryAddr, *((UINT64*)&pmdEntry),
-                                           true);
+                // dataCache.translate_lookup(pmdEntryAddr, *((UINT64*)&pmdEntry),
+                //                            true);
                 pteDataCacheMisses++;
-                dataCache.memAccessCount++;
+                // dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pmdStats.accesses++;
@@ -306,10 +305,10 @@ class PageTable {
         } else {
             if (isPteCachable) {
                 // Access the data cache
-                dataCache.translate_access(pudEntryAddr, *((UINT64*)&pudEntry),
-                                           true);
+                // dataCache.translate_lookup(pudEntryAddr, *((UINT64*)&pudEntry),
+                //                            true);
                 pteDataCacheMisses++;
-                dataCache.memAccessCount++;
+                // dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pudStats.accesses++;
@@ -355,10 +354,10 @@ class PageTable {
         } else {
             if (isPteCachable) {
                 // Access the data cache
-                dataCache.translate_access(pgdAddr, *((UINT64*)&pgdEntry),
-                                           true);
+                // dataCache.translate_lookup(pgdAddr, *((UINT64*)&pgdEntry),
+                //                            true);
                 pteDataCacheMisses++;
-                dataCache.memAccessCount++;
+                // dataCache.memAccessCount++;
             }
             pageWalkMemAccess++;
             pgdStats.accesses++;

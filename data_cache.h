@@ -1,6 +1,8 @@
 // data_cache.h
 #pragma once
 
+#include <cassert>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <utility>
@@ -39,7 +41,8 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
                 UINT64 parse_value = value;
                 UINT64 nextLevelTag =
                     tag << offsetBits >> nextLevel->getOffsetBits();
-                nextLevel->access(tag, parse_value, /*isWrite*/ true);
+                // we don't want to lookup here, it doesn't matter and it is not in critical path
+                nextLevel->insert(tag, parse_value, /*isWrite*/ true);
             } else {
                 // No next level (this is L3) – write back to main memory
                 if (memAccessCounter) {
@@ -65,46 +68,38 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     void setNextLevel(DataCache* nxt) { nextLevel = nxt; }
     void setMemCounter(size_t* memCountPt) { memAccessCounter = memCountPt; }
     UINT32 getOffsetBits() const { return offsetBits; }
+    size_t getWritebacks() const { return writebacks; }
 
-    bool access(ADDRINT cacheTag, UINT64& value, bool isWrite) {
-        bool hit = lookup(cacheTag, value);
-
-        // Update detailed R/W statistics
-        if (isWrite) {
-            writeAccesses++;
-            if (hit) {
+    bool lookup(const uint64_t& tag, uint64_t& value, bool isWrite = false) {
+        bool hit = SetAssociativeCache::lookup(tag, value);
+        if (hit) {
+            if (isWrite) {
                 writeHits++;
-            }
-        } else {
-            readAccesses++;
-            if (hit) {
+            } else {
                 readHits++;
             }
+        } else {
+            if (isWrite) {
+                writeAccesses++;
+            } else {
+                readAccesses++;
+            }
         }
-
-        // If it’s a write hit, mark the cache line as dirty
-        if (hit && isWrite) {
-            mark_dirty(cacheTag);  // update existing line, mark dirty
-        }
-
-        // Analyze miss type if not hit
         if (!hit) {
             if (globalLruCounter < numSets * numWays)
                 coldMisses++;
-            else if (findLruWay(getSetIndex(cacheTag)))
+            else if (findLruWay(getSetIndex(tag)))
                 capacityMisses++;
             else
                 conflictMisses++;
-
-            // On a miss, bring the block into this cache
-            insert(cacheTag, value,
-                   isWrite);  // write-allocate if write (dirty), normal if read
         }
-
         return hit;
     }
 
     // New statistics methods
+    uint64_t getAllMisses() const {
+        return coldMisses + capacityMisses + conflictMisses;
+    }
     double getReadHitRate() const {
         return readAccesses ? (double)readHits / readAccesses : 0;
     }
@@ -165,15 +160,15 @@ class CacheHierarchy {
     }
 
     // translation access start from L2, do not access L1
-    bool translate_access(ADDRINT paddr, UINT64& value, bool isWrite) {
+    bool translate_lookup(ADDRINT paddr, UINT64& value) {
         UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
         // L2 access
-        if (l2Cache.access(l2CacheTag, value, isWrite)) {
+        if (l2Cache.lookup(l2CacheTag, value)) {
             return true;
         }
         UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
         // L3 access (on L1 & L2 miss)
-        if (l3Cache.access(l3CacheTag, value, isWrite)) {
+        if (l3Cache.lookup(l3CacheTag, value)) {
             // On L3 hit, fill L2
             l2Cache.insert(l2CacheTag, value, false);
             return true;
@@ -187,66 +182,37 @@ class CacheHierarchy {
         return false;
     }
 
-    bool translate_lookup(ADDRINT paddr, UINT64& value) {
-        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
-        // L2 access
-        if (l2Cache.lookup(l2CacheTag, value))
-            return true;
-
-        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
-        // L3 access
-        if (l3Cache.lookup(l3CacheTag, value)) {
-            l2Cache.insert(l2CacheTag, value);  // Fill L2
-            return true;
-        }
-
-        return false;  // Miss in all caches
-    }
-
-    bool lookup(ADDRINT paddr, UINT64& value) {
-        // L1 access
-        UINT64 l1CacheTag = paddr >> l1Cache.getOffsetBits();
-        if (l1Cache.lookup(l1CacheTag, value))
-            return true;
-
-        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
-        // L2 access
-        if (l2Cache.lookup(l2CacheTag, value)) {
-            l1Cache.insert(l1CacheTag, value);  // Fill L1
-            return true;
-        }
-
-        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
-        // L3 access
-        if (l3Cache.lookup(l3CacheTag, value)) {
-            l1Cache.insert(l1CacheTag, value);  // Fill L1
-            l2Cache.insert(l2CacheTag, value);  // Fill L2
-            return true;
-        }
-
-        return false;  // Miss in all caches
-    }
-
     bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
         UINT64 l1CacheTag = paddr >> l1Cache.getOffsetBits();
         // L1 access
-        if (l1Cache.access(l1CacheTag, value, isWrite)) {
+        if (l1Cache.lookup(l1CacheTag, value, isWrite)) {
             // Hit in L1. If isWrite, L1 line is now marked dirty (no write-through).
+            if (isWrite)
+                l1Cache.insert(l1CacheTag, value,
+                               isWrite);  // update value (dirty flag set)
             return true;
         }
 
         UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
         // L2 access (on L1 miss)
-        if (l2Cache.access(l2CacheTag, value, isWrite)) {
+        if (l2Cache.lookup(l2CacheTag, value, isWrite)) {
             // On L2 hit, fill L1 with the block
             l1Cache.insert(l1CacheTag, value, isWrite);
             // (If write, L1 will be dirty; no immediate write to L3)
+            if (isWrite) {
+                l2Cache.insert(l1CacheTag, value,
+                               isWrite);  // update value (dirty flag set)
+            }
             return true;
         }
         UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
         // L3 access (on L1 & L2 miss)
-        if (l3Cache.access(l3CacheTag, value, isWrite)) {
+        if (l3Cache.lookup(l3CacheTag, value, isWrite)) {
             // On L3 hit, fill L2 and L1
+            if (isWrite) {
+                l3Cache.insert(l1CacheTag, value,
+                               isWrite);  // update value (dirty flag set)
+            }
             l2Cache.insert(l2CacheTag, value, false);
             l1Cache.insert(l1CacheTag, value, isWrite);
             // L1 marked dirty if write; L2 remains clean copy
@@ -255,6 +221,9 @@ class CacheHierarchy {
 
         // Miss in all caches: access main memory
         memAccessCount++;  // memory read for the new block
+        assert(l3Cache.getAccesses() - l3Cache.getHits() +
+                   l3Cache.getWritebacks() ==
+               memAccessCount);
         // Fill all levels with the new block (inclusive cache policy)
         l3Cache.insert(l3CacheTag, value, false);
         l2Cache.insert(l2CacheTag, value, false);
