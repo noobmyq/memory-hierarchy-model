@@ -13,21 +13,21 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
    private:
     UINT32 lineSize;
     UINT32 offsetBits;
-    size_t readAccesses;
-    size_t readHits;
-    size_t writeAccesses;
-    size_t writeHits;
-    size_t writebacks;
-    size_t coldMisses;
-    size_t capacityMisses;
-    size_t conflictMisses;
+    UINT64 readAccesses;
+    UINT64 readHits;
+    UINT64 writeAccesses;
+    UINT64 writeHits;
+    UINT64 writebacks;
+    UINT64 coldMisses;
+    UINT64 capacityMisses;
+    UINT64 conflictMisses;
     DataCache*
         nextLevel;  // pointer to next level cache (L2 or L3), or nullptr if last level
-    size_t*
+    UINT64*
         memAccessCounter;  // pointer to memory access counter (for last level)
 
    protected:
-    size_t getSetIndex(const UINT64& tag) const override {
+    UINT64 getSetIndex(const UINT64& tag) const override {
         UINT64 index = tag & (numSets - 1);
         return index;
     }
@@ -54,7 +54,7 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     }
 
    public:
-    DataCache(const std::string& name, size_t totalSize, size_t associativity,
+    DataCache(const std::string& name, UINT64 totalSize, UINT64 associativity,
               UINT32 lineSize)
         : SetAssociativeCache<UINT64, UINT64>(
               name, totalSize / (associativity * lineSize), associativity),
@@ -66,25 +66,24 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
     }
     // Set up links to next level and memory counter for write-back propagation
     void setNextLevel(DataCache* nxt) { nextLevel = nxt; }
-    void setMemCounter(size_t* memCountPt) { memAccessCounter = memCountPt; }
+    void setMemCounter(UINT64* memCountPt) { memAccessCounter = memCountPt; }
     UINT32 getOffsetBits() const { return offsetBits; }
-    size_t getWritebacks() const { return writebacks; }
+    UINT64 getWritebacks() const { return writebacks; }
 
     bool lookup(const uint64_t& tag, uint64_t& value, bool isWrite = false) {
         bool hit = SetAssociativeCache::lookup(tag, value);
-        if (hit) {
-            if (isWrite) {
+        if (isWrite) {
+            writeAccesses++;
+            if (hit) {
                 writeHits++;
-            } else {
-                readHits++;
             }
         } else {
-            if (isWrite) {
-                writeAccesses++;
-            } else {
-                readAccesses++;
+            readAccesses++;
+            if (hit) {
+                readHits++;
             }
         }
+
         if (!hit) {
             if (globalLruCounter < numSets * numWays)
                 coldMisses++;
@@ -140,12 +139,12 @@ class CacheHierarchy {
     DataCache l3Cache;
 
    public:
-    size_t memAccessCount;
+    UINT64 memAccessCount;
 
    public:
-    CacheHierarchy(size_t l1Size, size_t l1Ways, size_t l1Line, size_t l2Size,
-                   size_t l2Ways, size_t l2Line, size_t l3Size, size_t l3Ways,
-                   size_t l3Line)
+    CacheHierarchy(UINT64 l1Size, UINT64 l1Ways, UINT64 l1Line, UINT64 l2Size,
+                   UINT64 l2Ways, UINT64 l2Line, UINT64 l3Size, UINT64 l3Ways,
+                   UINT64 l3Line)
         : l1Cache("L1 Cache", l1Size, l1Ways, l1Line),
           l2Cache("L2 Cache", l2Size, l2Ways, l2Line),
           l3Cache("L3 Cache", l3Size, l3Ways, l3Line),

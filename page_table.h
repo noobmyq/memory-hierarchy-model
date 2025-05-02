@@ -36,10 +36,10 @@ class PageTable {
     TLB l2Tlb;  // L2 TLB (larger, slower)
 
     // page table set up
-    const size_t pgdEntrySize;
-    const size_t pudEntrySize;
-    const size_t pmdEntrySize;
-    const size_t pteEntrySize;
+    const UINT64 pgdEntrySize;
+    const UINT64 pudEntrySize;
+    const UINT64 pmdEntrySize;
+    const UINT64 pteEntrySize;
 
     const int PTE_INDEX_SHIFT;
     const int PMD_SHIFT;
@@ -63,9 +63,9 @@ class PageTable {
     UINT64 pudCacheHits;        // Translations requiring PUD PWC
     UINT64 pgdCacheHits;        // Translations requiring PGD PWC
     UINT64 fullWalks;           // Translations requiring full page walk
-    size_t pageWalkMemAccess;   // 页表遍历导致的实际内存访问
-    size_t pteDataCacheHits;    // 页表项缓存命中次数
-    size_t pteDataCacheMisses;  // 页表项缓存未命中次数
+    UINT64 pageWalkMemAccess;   // Memory Access during page walk
+    UINT64 pteDataCacheHits;    // Hits in data cache during walk
+    UINT64 pteDataCacheMisses;  // Miss
 
     // Per-level statistics
     struct PageTableLevelStats {
@@ -75,7 +75,7 @@ class PageTable {
         UINT64 entries;      // Number of entries used at this level
         UINT64 size;         // Size of the table at this level
 
-        PageTableLevelStats(const std::string& levelName, size_t tableSize)
+        PageTableLevelStats(const std::string& levelName, UINT64 tableSize)
             : name(levelName),
               accesses(0),
               allocations(0),
@@ -91,14 +91,14 @@ class PageTable {
 
    public:
     PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache,
-              bool isPteCachable = true, size_t l1TlbSize = 64,
-              size_t l1TlbWays = 4, size_t l2TlbSize = 1024,
-              size_t l2TlbWays = 8, size_t pgdPwcSize = 16,
-              size_t pgdPwcWays = 4, size_t pudPwcSize = 16,
-              size_t pudPwcWays = 4, size_t pmdPwcSize = 16,
-              size_t pmdPwcWays = 4, size_t pgdEntrySize = 512,
-              size_t pudEntrySize = 512, size_t pmdEntrySize = 512,
-              size_t pteEntrySize = 512, bool TOCEnabled = false,
+              bool isPteCachable = true, UINT64 l1TlbSize = 64,
+              UINT64 l1TlbWays = 4, UINT64 l2TlbSize = 1024,
+              UINT64 l2TlbWays = 8, UINT64 pgdPwcSize = 16,
+              UINT64 pgdPwcWays = 4, UINT64 pudPwcSize = 16,
+              UINT64 pudPwcWays = 4, UINT64 pmdPwcSize = 16,
+              UINT64 pmdPwcWays = 4, UINT64 pgdEntrySize = 512,
+              UINT64 pudEntrySize = 512, UINT64 pmdEntrySize = 512,
+              UINT64 pteEntrySize = 512, bool TOCEnabled = false,
               UINT32 TOCSize = 0)
         : physMem(physicalMemory),
           dataCache(dataCache),
@@ -637,15 +637,15 @@ class PageTable {
 
    public:
     // Get statistics
-    size_t getNumPageTables() const { return pageTables.size(); }
+    UINT64 getNumPageTables() const { return pageTables.size(); }
 
     // TLB statistics
     double getL1TlbHitRate() const { return l1Tlb.getHitRate(); }
     double getL2TlbHitRate() const { return l2Tlb.getHitRate(); }
-    size_t getL1TlbAccesses() const { return l1Tlb.getAccesses(); }
-    size_t getL2TlbAccesses() const { return l2Tlb.getAccesses(); }
-    size_t getL1TlbHits() const { return l1Tlb.getHits(); }
-    size_t getL2TlbHits() const { return l2Tlb.getHits(); }
+    UINT64 getL1TlbAccesses() const { return l1Tlb.getAccesses(); }
+    UINT64 getL2TlbAccesses() const { return l2Tlb.getAccesses(); }
+    UINT64 getL1TlbHits() const { return l1Tlb.getHits(); }
+    UINT64 getL2TlbHits() const { return l2Tlb.getHits(); }
 
     // Overall TLB efficiency
     double getTlbEfficiency() const {
@@ -657,11 +657,11 @@ class PageTable {
     }
 
     // Page walk statistics
-    size_t getPageTableWalks() const { return fullWalks; }
-    size_t getFullWalks() const { return fullWalks; }
-    size_t getPgdCacheHits() const { return pgdCacheHits; }
-    size_t getPudCacheHits() const { return pudCacheHits; }
-    size_t getPmdCacheHits() const { return pmdCacheHits; }
+    UINT64 getPageTableWalks() const { return fullWalks; }
+    UINT64 getFullWalks() const { return fullWalks; }
+    UINT64 getPgdCacheHits() const { return pgdCacheHits; }
+    UINT64 getPudCacheHits() const { return pudCacheHits; }
+    UINT64 getPmdCacheHits() const { return pmdCacheHits; }
     double getPgdCacheHitRate() const { return pgdPwc.getHitRate(); }
     double getPudCacheHitRate() const { return pudPwc.getHitRate(); }
     double getPmdCacheHitRate() const { return pmdPwc.getHitRate(); }

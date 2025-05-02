@@ -7,7 +7,7 @@
 class TLB : public SetAssociativeCache<UINT64, UINT64> {
    protected:
     // Hash function to map VPN to set index
-    size_t getSetIndex(const UINT64& vpn) const override {
+    UINT64 getSetIndex(const UINT64& vpn) const override {
         return vpn % numSets;
     }
     void handleEviction(const UINT64& vpn, const UINT64& pfn,
@@ -17,8 +17,8 @@ class TLB : public SetAssociativeCache<UINT64, UINT64> {
     }
 
    public:
-    TLB(const std::string& cacheName = "TLB", size_t numEntries = 64,
-        size_t associativity = 4)
+    TLB(const std::string& cacheName = "TLB", UINT64 numEntries = 64,
+        UINT64 associativity = 4)
         : SetAssociativeCache<UINT64, UINT64>(
               cacheName,
               numEntries / associativity,  // Sets = Total entries / Ways

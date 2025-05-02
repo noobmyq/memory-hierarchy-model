@@ -65,7 +65,7 @@ class OfflineAnalyzer {
             }
 
             // Calculate number of complete records read
-            size_t records_read = bytes_read / sizeof(MEMREF);
+            UINT64 records_read = bytes_read / sizeof(MEMREF);
             if (bytes_read % sizeof(MEMREF) != 0) {
                 cerr << "Warning: Partial record detected at end of file. "
                         "Skipping."
@@ -101,8 +101,8 @@ class OfflineAnalyzer {
         return true;
     }
 
-    void process_batch(const MEMREF* buffer, size_t num_elements) {
-        for (size_t i = 0; i < num_elements; ++i) {
+    void process_batch(const MEMREF* buffer, UINT64 num_elements) {
+        for (UINT64 i = 0; i < num_elements; ++i) {
             const MEMREF& ref = buffer[i];
             access_count_++;
 
@@ -163,9 +163,9 @@ class OfflineAnalyzer {
     PhysicalMemory physical_memory_;
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
-    size_t access_count_ = 0;
-    std::unordered_map<UINT64, size_t> virtual_pages_;
-    std::unordered_map<UINT64, size_t> physical_pages_;
+    UINT64 access_count_ = 0;
+    std::unordered_map<UINT64, UINT64> virtual_pages_;
+    std::unordered_map<UINT64, UINT64> physical_pages_;
 };
 
 // --- Command Line Argument Parsing ---
@@ -210,7 +210,7 @@ SimConfig parse_args(int argc, char* argv[]) {
                  << "  --l3_line N               L3 Cache line size (default: "
                     "64)\n"
                  << "  --pte_cachable BOOL       PTE cacheable flag (default: "
-                    "1)\n"
+                    "0)\n"
                  << "  --pgd_size N              PGD size in entries "
                     "(default: 512)\n"
                  << "  --pud_size N              PUD size in entries "

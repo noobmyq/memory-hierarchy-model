@@ -20,7 +20,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
    protected:
     // Hash function to map VA tag to set index
-    size_t getSetIndex(const UINT64& vaTag) const override {
+    UINT64 getSetIndex(const UINT64& vaTag) const override {
         return vaTag % numSets;
     }
 
@@ -31,8 +31,8 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     }
 
    public:
-    PageWalkCache(const std::string& cacheName, size_t numEntries = 16,
-                  size_t associativity = 4, UINT32 lowBit = 0,
+    PageWalkCache(const std::string& cacheName, UINT64 numEntries = 16,
+                  UINT64 associativity = 4, UINT32 lowBit = 0,
                   UINT32 highBit = 63)
         : SetAssociativeCache<UINT64, UINT64>(
               cacheName,
@@ -40,8 +40,8 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
               associativity),
           indexBitsLow(lowBit),
           indexBitsHigh(highBit) {
-        for (size_t i = 0; i < numSets; i++) {
-            for (size_t j = 0; j < numWays; j++) {
+        for (UINT64 i = 0; i < numSets; i++) {
+            for (UINT64 j = 0; j < numWays; j++) {
                 sets[i][j].value =
                     (UINT64) nullptr;      // Initialize value to nullptr
                 sets[i][j].valid = false;  // Initialize valid bit to false
@@ -70,11 +70,11 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
         UINT64 tag = getTag(vaddr);
         if (TOCEnabled) {
             this->accesses++;
-            size_t setIndex = getSetIndex(tag);
+            UINT64 setIndex = getSetIndex(tag);
             UINT32 TOCIndex =
                 (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
 
-            for (size_t way = 0; way < numWays; way++) {
+            for (UINT64 way = 0; way < numWays; way++) {
                 if (sets[setIndex][way].valid &&
                     sets[setIndex][way].tag == tag) {
                     TOCEntry* TOCPtr = (TOCEntry*)(sets[setIndex][way].value);
@@ -99,10 +99,10 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     void insert(ADDRINT vaddr, UINT64 nextLevelPfn) {
         UINT64 tag = getTag(vaddr);
         if (TOCEnabled) {
-            size_t setIndex = getSetIndex(tag);
+            UINT64 setIndex = getSetIndex(tag);
             UINT32 TOCIndex =
                 (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
-            for (size_t way = 0; way < numWays; way++) {
+            for (UINT64 way = 0; way < numWays; way++) {
                 if (sets[setIndex][way].valid &&
                     sets[setIndex][way].tag == tag) {
                     // Entry already exists, update TOC entry
@@ -116,7 +116,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
             }
 
             // Entry does not exist, choose a victim
-            size_t way = findLruWay(setIndex);
+            UINT64 way = findLruWay(setIndex);
             bool evictValid = sets[setIndex][way].valid;
             bool evictDirty = false;
             UINT64 evictTag;

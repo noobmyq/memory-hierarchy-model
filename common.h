@@ -34,43 +34,43 @@ constexpr UINT32 static_log2(UINT32 n) {
 struct SimConfig {
     UINT64 phys_mem_gb = 30;
     struct {
-        std::size_t l1_size = 64;
-        std::size_t l1_ways = 4;
-        std::size_t l2_size = 1024;
-        std::size_t l2_ways = 8;
+        UINT64 l1_size = 64;
+        UINT64 l1_ways = 4;
+        UINT64 l2_size = 1024;
+        UINT64 l2_ways = 8;
     } tlb;
     struct {
-        std::size_t pgdSize = 4;
-        std::size_t pgdWays = 4;
-        std::size_t pudSize = 4;
-        std::size_t pudWays = 4;
-        std::size_t pmdSize = 16;
-        std::size_t pmdWays = 4;
+        UINT64 pgdSize = 4;
+        UINT64 pgdWays = 4;
+        UINT64 pudSize = 4;
+        UINT64 pudWays = 4;
+        UINT64 pmdSize = 16;
+        UINT64 pmdWays = 4;
     } pwc;
     struct {
-        std::size_t l1_size = 32 * 1024;  // 32KB
-        std::size_t l1_ways = 8;
-        std::size_t l1_line = 64;
-        std::size_t l2_size = 256 * 1024;  // 256KB
-        std::size_t l2_ways = 16;
-        std::size_t l2_line = 64;
-        std::size_t l3_size = 8 * 1024 * 1024;  // 8MB
-        std::size_t l3_ways = 16;
-        std::size_t l3_line = 64;
+        UINT64 l1_size = 32 * 1024;  // 32KB
+        UINT64 l1_ways = 8;
+        UINT64 l1_line = 64;
+        UINT64 l2_size = 256 * 1024;  // 256KB
+        UINT64 l2_ways = 16;
+        UINT64 l2_line = 64;
+        UINT64 l3_size = 8 * 1024 * 1024;  // 8MB
+        UINT64 l3_ways = 16;
+        UINT64 l3_line = 64;
     } cache;
 
     struct {
-        std::size_t pgd_size = 512;
-        std::size_t pud_size = 512;
-        std::size_t pmd_size = 512;
-        std::size_t pte_size = 512;
-        bool pte_cachable = true;
+        UINT64 pgd_size = 512;
+        UINT64 pud_size = 512;
+        UINT64 pmd_size = 512;
+        UINT64 pte_size = 512;
+        bool pte_cachable = false;
         bool TOCEnabled = false;
         UINT32 TOCSize = 0;  // Size of the table of contents (TOC) in bytes
     } pgtbl;
 
     std::string trace_file;  // Path to the trace file
-    std::size_t batch_size =
+    UINT64 batch_size =
         4096;  // Number of MEMREF entries to process in each batch
 
     UINT64 physical_mem_bytes() const { return phys_mem_gb * (1ULL << 30); }

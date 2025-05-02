@@ -35,8 +35,8 @@ class Simulator {
               config.pgtbl.pmd_size, config.pgtbl.pte_size,
               config.pgtbl.TOCEnabled, config.pgtbl.TOCSize),
           out_stream_(std::move(out_stream)) {}
-    void process_batch(const MEMREF* buffer, size_t numElements) {
-        for (size_t i = 0; i < numElements; ++i) {
+    void process_batch(const MEMREF* buffer, UINT64 numElements) {
+        for (UINT64 i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
             access_count_++;
             const ADDRINT vaddr = ref.ea;
@@ -75,7 +75,7 @@ class Simulator {
     PhysicalMemory physical_memory_;
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
-    size_t access_count_ = 0;
+    UINT64 access_count_ = 0;
     std::unique_ptr<std::ofstream> out_stream_;
 };
 
@@ -86,53 +86,53 @@ BUFFER_ID bufId;
 // --- Knobs for Simulator Configuration ---
 KNOB<UINT64> KnobPhysMemGB(KNOB_MODE_WRITEONCE, "pintool", "phys_mem_gb", "1",
                            "Physical memory size in GB");
-KNOB<size_t> KnobL1TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_size", "64",
+KNOB<UINT64> KnobL1TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_size", "64",
                            "L1 TLB size");
-KNOB<size_t> KnobL1TLBWays(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_ways", "4",
+KNOB<UINT64> KnobL1TLBWays(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_ways", "4",
                            "L1 TLB associativity");
-KNOB<size_t> KnobL2TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l2_tlb_size",
+KNOB<UINT64> KnobL2TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l2_tlb_size",
                            "1024", "L2 TLB size");
-KNOB<size_t> KnobL2TLBWays(KNOB_MODE_WRITEONCE, "pintool", "l2_tlb_ways", "8",
+KNOB<UINT64> KnobL2TLBWays(KNOB_MODE_WRITEONCE, "pintool", "l2_tlb_ways", "8",
                            "L2 TLB associativity");
-KNOB<size_t> KnobPGDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pgd_pwc_size",
+KNOB<UINT64> KnobPGDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pgd_pwc_size",
                             "16", "PWC size");
-KNOB<size_t> KnobPGDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pgd_pwc_ways", "4",
+KNOB<UINT64> KnobPGDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pgd_pwc_ways", "4",
                             "PWC associativity");
-KNOB<size_t> KnobPUDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pud_pwc_size",
+KNOB<UINT64> KnobPUDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pud_pwc_size",
                             "16", "PWC size");
-KNOB<size_t> KnobPUDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pud_pwc_ways", "4",
+KNOB<UINT64> KnobPUDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pud_pwc_ways", "4",
                             "PWC associativity");
-KNOB<size_t> KnobPMDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_size",
+KNOB<UINT64> KnobPMDPWCSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_size",
                             "16", "PWC size");
-KNOB<size_t> KnobPMDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_ways", "4",
+KNOB<UINT64> KnobPMDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_ways", "4",
                             "PWC associativity");
-KNOB<size_t> KnobL1CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l1_cache_size",
+KNOB<UINT64> KnobL1CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l1_cache_size",
                              "32768", "L1 Cache size in bytes");
-KNOB<size_t> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1_ways", "8",
+KNOB<UINT64> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1_ways", "8",
                         "L1 Cache associativity");
-KNOB<size_t> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1_line", "64",
+KNOB<UINT64> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1_line", "64",
                         "L1 Cache line size");
-KNOB<size_t> KnobL2CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l2_cache_size",
+KNOB<UINT64> KnobL2CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l2_cache_size",
                              "262144", "L2 Cache size in bytes");
-KNOB<size_t> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2_ways", "16",
+KNOB<UINT64> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2_ways", "16",
                         "L2 Cache associativity");
-KNOB<size_t> KnobL2Line(KNOB_MODE_WRITEONCE, "pintool", "l2_line", "64",
+KNOB<UINT64> KnobL2Line(KNOB_MODE_WRITEONCE, "pintool", "l2_line", "64",
                         "L2 Cache line size");
-KNOB<size_t> KnobL3CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l3_cache_size",
+KNOB<UINT64> KnobL3CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l3_cache_size",
                              "8388608", "L3 Cache size in bytes");
-KNOB<size_t> KnobL3Ways(KNOB_MODE_WRITEONCE, "pintool", "l3_ways", "16",
+KNOB<UINT64> KnobL3Ways(KNOB_MODE_WRITEONCE, "pintool", "l3_ways", "16",
                         "L3 Cache associativity");
-KNOB<size_t> KnobL3Line(KNOB_MODE_WRITEONCE, "pintool", "l3_line", "64",
+KNOB<UINT64> KnobL3Line(KNOB_MODE_WRITEONCE, "pintool", "l3_line", "64",
                         "L3 Cache line size");
-KNOB<bool> KnobPteCachable(KNOB_MODE_WRITEONCE, "pintool", "pte_cachable", "1",
+KNOB<bool> KnobPteCachable(KNOB_MODE_WRITEONCE, "pintool", "pte_cachable", "0",
                            "PTE cacheable flag");
-KNOB<size_t> KnobPGDSize(KNOB_MODE_WRITEONCE, "pintool", "pgd_size", "512",
+KNOB<UINT64> KnobPGDSize(KNOB_MODE_WRITEONCE, "pintool", "pgd_size", "512",
                          "Number of PGD entries");
-KNOB<size_t> KnobPUDSize(KNOB_MODE_WRITEONCE, "pintool", "pud_size", "512",
+KNOB<UINT64> KnobPUDSize(KNOB_MODE_WRITEONCE, "pintool", "pud_size", "512",
                          "Number of PUD entries");
-KNOB<size_t> KnobPMDSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_size", "512",
+KNOB<UINT64> KnobPMDSize(KNOB_MODE_WRITEONCE, "pintool", "pmd_size", "512",
                          "Number of PMD entries");
-KNOB<size_t> KnobPTESize(KNOB_MODE_WRITEONCE, "pintool", "pte_size", "512",
+KNOB<UINT64> KnobPTESize(KNOB_MODE_WRITEONCE, "pintool", "pte_size", "512",
                          "Number of PTE entries");
 KNOB<bool> KnobTOCEnabled(KNOB_MODE_WRITEONCE, "pintool", "toc_enabled", "0",
                           "Enable Table of Contents (TOC) for PWC");
@@ -225,7 +225,7 @@ int main(int argc, char* argv[]) {
     config.cache.l3_size = KnobL3CacheSize.Value();
     config.cache.l3_ways = KnobL3Ways.Value();
     config.cache.l3_line = KnobL3Line.Value();
-    config.pgtbl.pte_cachable = KnobPteCachable.Value();
+    config.pgtbl.pte_cachable = (KnobPteCachable.Value() != 0);
     config.pgtbl.pgd_size = KnobPGDSize.Value();
     config.pgtbl.pud_size = KnobPUDSize.Value();
     config.pgtbl.pmd_size = KnobPMDSize.Value();
