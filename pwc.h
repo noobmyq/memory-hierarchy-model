@@ -11,7 +11,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     UINT32 indexBitsLow;   // Low bit position for VA tag extraction
     UINT32 indexBitsHigh;  // High bit position for VA tag extraction
     UINT32 TOCSize = 4;    // Size of the table of contents (TOC) in bytes
-    UINT32 TOCMask = 0;    // Mask for TOC size
+    UINT64 TOCMask = 0;    // Mask for TOC size
 
     typedef struct TOCEntry {
         bool valid = false;  // Tag for the entry
@@ -53,7 +53,7 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
     bool isTOCEnabled() const { return TOCEnabled; }
     void setTOCSize(UINT32 size) {
         TOCSize = size;
-        TOCMask = (size - 1) << indexBitsLow;
+        TOCMask = ((UINT64)size - 1ULL) << (UINT64)indexBitsLow;
         indexBitsLow += __builtin_ctz(size);
     }
     UINT32 getTOCSize() const { return TOCSize; }
