@@ -12,9 +12,9 @@ class PhysicalMemory {
     std::vector<bool> frameAllocated;  // Bitmap of allocated frames
     UINT64 nextFrame;                  // Next frame to allocate
    public:
-    PhysicalMemory(UINT64 memorySize = PHYSICAL_MEMORY_SIZE)
+    PhysicalMemory(UINT64 memorySize = kPhysicalMemorySize)
         : size(memorySize), allocatedFrames(0) {
-        UINT64 numFrames = size / MEMTRACE_PAGE_SIZE;
+        UINT64 numFrames = size / kMemTracePageSize;
         frameAllocated.resize(numFrames, false);
         // Reserve frame 0 for null pointer detection
         frameAllocated[0] = true;
@@ -43,5 +43,5 @@ class PhysicalMemory {
     double getUtilization() const {
         return static_cast<double>(allocatedFrames) / frameAllocated.size();
     }
-    UINT64 getSize() const { return size; }
+    UINT64 GetSize() const { return size; }
 };

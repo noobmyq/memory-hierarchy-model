@@ -26,55 +26,38 @@ struct PageTableEntry {
 // Page Table (4-level) with PWCs and two-level TLB
 class PageTable {
    private:
-    std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables;
-    UINT64 cr3;                 // Page table base register (points to PGD)
-    PhysicalMemory& physMem;    // Reference to physical memory
-    CacheHierarchy& dataCache;  // Reference to data cache
-    bool isPteCachable;         // PTE cacheable flag
+    std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables_;
+    UINT64 cr3_;                 // Page table base register (points to PGD)
+    PhysicalMemory& physMem_;    // Reference to physical memory
+    CacheHierarchy& dataCache_;  // Reference to data cache
+    bool isPteCachable_;         // PTE cacheable flag
     // Two-level TLB
-    TLB l1Tlb;  // L1 TLB (smaller, faster)
-    TLB l2Tlb;  // L2 TLB (larger, slower)
+    TLB l1Tlb_;  // L1 TLB (smaller, faster)
+    TLB l2Tlb_;  // L2 TLB (larger, slower)
 
     // page table set up
-    const UINT64 pgdEntrySize;
-    const UINT64 pudEntrySize;
-    const UINT64 pmdEntrySize;
-    const UINT64 pteEntrySize;
+    const UINT64 pgdEntryNum_;
+    const UINT64 pudEntryNum_;
+    const UINT64 pmdEntryNum_;
+    const UINT64 pteEntryNum_;
 
-    const int PTE_INDEX_SHIFT;
-    const int PMD_SHIFT;
-    const int PUD_SHIFT;
-    const int PGD_SHIFT;
+    const int pteIndexShift_;
+    const int pmdShift_;
+    const int pudShift_;
+    const int pgdShift_;
 
-    const UINT64 PTE_MASK = pteEntrySize - 1;
-    const UINT64 PMD_MASK = pmdEntrySize - 1;
-    const UINT64 PUD_MASK = pudEntrySize - 1;
-    const UINT64 PGD_MASK = pgdEntrySize - 1;
+    const UINT64 pteMask_ = pteEntryNum_ - 1;
+    const UINT64 pmdMask_ = pmdEntryNum_ - 1;
+    const UINT64 pudMask_ = pudEntryNum_ - 1;
+    const UINT64 pgdMask_ = pgdEntryNum_ - 1;
 
     // Page Walk Caches for different levels
-    PageWalkCache pgdPwc;  // PML4E cache (PGD)
-    PageWalkCache pudPwc;  // PDPTE cache (PUD)
-    PageWalkCache pmdPwc;  // PDE cache (PMD)
+    PageWalkCache pgdPwc_;  // PML4E cache (PGD)
+    PageWalkCache pudPwc_;  // PDPTE cache (PUD)
+    PageWalkCache pmdPwc_;  // PDE cache (PMD)
 
-    // Stats for translation paths
-    struct TranslationStats {
-        UINT64 l1TlbHits = 0;           // Translations satisfied by L1 TLB
-        UINT64 l2TlbHits = 0;           // Translations satisfied by L2 TLB
-        UINT64 pmdCacheHits = 0;        // Translations requiring PMD PWC
-        UINT64 pudCacheHits = 0;        // Translations requiring PUD PWC
-        UINT64 pgdCacheHits = 0;        // Translations requiring PGD PWC
-        UINT64 fullWalks = 0;           // Translations requiring full page walk
-        UINT64 pageWalkMemAccess = 0;   // Memory Access during page walk
-        UINT64 pteDataCacheHits = 0;    // Hits in data cache during walk
-        UINT64 pteDataCacheMisses = 0;  // Miss
-
-        TranslationStats() = default;
-        UINT64 GetTotalTranslation() const {
-            return l1TlbHits + l2TlbHits + pmdCacheHits + pudCacheHits +
-                   pgdCacheHits + fullWalks;
-        }
-    };
-    TranslationStats stats;
+    // Statistics for page table translation
+    TranslationStats translationStats_;
     // Per-level statistics
     struct PageTableLevelStats {
         std::string name;    // Level name
@@ -92,10 +75,10 @@ class PageTable {
     };
 
     // Statistics for each level
-    PageTableLevelStats pgdStats;
-    PageTableLevelStats pudStats;
-    PageTableLevelStats pmdStats;
-    PageTableLevelStats pteStats;
+    PageTableLevelStats pgdStats_;
+    PageTableLevelStats pudStats_;
+    PageTableLevelStats pmdStats_;
+    PageTableLevelStats pteStats_;
 
    public:
     PageTable(PhysicalMemory& physicalMemory, CacheHierarchy& dataCache,
@@ -104,417 +87,338 @@ class PageTable {
               UINT64 l2TlbWays = 8, UINT64 pgdPwcSize = 16,
               UINT64 pgdPwcWays = 4, UINT64 pudPwcSize = 16,
               UINT64 pudPwcWays = 4, UINT64 pmdPwcSize = 16,
-              UINT64 pmdPwcWays = 4, UINT64 pgdEntrySize = 512,
-              UINT64 pudEntrySize = 512, UINT64 pmdEntrySize = 512,
-              UINT64 pteEntrySize = 512, bool TOCEnabled = false,
-              UINT32 TOCSize = 0)
-        : physMem(physicalMemory),
-          dataCache(dataCache),
-          isPteCachable(isPteCachable),
-          l1Tlb("L1 TLB", l1TlbSize, l1TlbWays),
-          l2Tlb("L2 TLB", l2TlbSize, l2TlbWays),
-          pgdEntrySize(pgdEntrySize),
-          pudEntrySize(pudEntrySize),
-          pmdEntrySize(pmdEntrySize),
-          pteEntrySize(pteEntrySize),
-          PTE_INDEX_SHIFT(PAGE_SHIFT),
-          PMD_SHIFT(PTE_INDEX_SHIFT + static_log2(pteEntrySize)),
-          PUD_SHIFT(PMD_SHIFT + static_log2(pmdEntrySize)),
-          PGD_SHIFT(PUD_SHIFT + static_log2(pudEntrySize)),
-          pgdPwc("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, PGD_SHIFT, 47),
-          pudPwc("PDPTE Cache (PUD)", pudPwcSize, pudPwcWays, PUD_SHIFT, 47),
-          pmdPwc("PDE Cache (PMD)", pmdPwcSize, pmdPwcWays, PMD_SHIFT, 47),
-          stats(),
-          pgdStats("PGD (Page Global Directory)", pgdEntrySize),
-          pudStats("PUD (Page Upper Directory)", pudEntrySize),
-          pmdStats("PMD (Page Middle Directory)", pmdEntrySize),
-          pteStats("PTE (Page Table Entry)", pteEntrySize) {
+              UINT64 pmdPwcWays = 4, UINT64 pgdEntryNum = 512,
+              UINT64 pudEntryNum = 512, UINT64 pmdEntryNum = 512,
+              UINT64 pteEntryNum = 512, bool tocEnabled = false,
+              UINT64 tocSize = 0)
+        : physMem_(physicalMemory),
+          dataCache_(dataCache),
+          isPteCachable_(isPteCachable),
+          l1Tlb_("L1 TLB", l1TlbSize, l1TlbWays),
+          l2Tlb_("L2 TLB", l2TlbSize, l2TlbWays),
+          pgdEntryNum_(pgdEntryNum),
+          pudEntryNum_(pudEntryNum),
+          pmdEntryNum_(pmdEntryNum),
+          pteEntryNum_(pteEntryNum),
+          pteIndexShift_(kPageShift),
+          pmdShift_(pteIndexShift_ + StaticLog2(pteEntryNum)),
+          pudShift_(pmdShift_ + StaticLog2(pmdEntryNum)),
+          pgdShift_(pudShift_ + StaticLog2(pudEntryNum)),
+          pgdPwc_("PML4E Cache (PGD)", pgdPwcSize, pgdPwcWays, pgdShift_, 47),
+          pudPwc_("PDPTE Cache (PUD)", pudPwcSize, pudPwcWays, pudShift_, 47),
+          pmdPwc_("PDE Cache (PMD)", pmdPwcSize, pmdPwcWays, pmdShift_, 47),
+          translationStats_(),
+          pgdStats_("PGD (Page Global Directory)", pgdEntryNum),
+          pudStats_("PUD (Page Upper Directory)", pudEntryNum),
+          pmdStats_("PMD (Page Middle Directory)", pmdEntryNum),
+          pteStats_("PTE (Page Table Entry)", pteEntryNum) {
         // Allocate the root page table (PGD)
-        cr3 = physMem.allocateFrame() * MEMTRACE_PAGE_SIZE;
-        pageTables[cr3] = std::make_unique<PageTableEntry[]>(pgdEntrySize);
+        cr3_ = physMem_.allocateFrame() * kMemTracePageSize;
+        pageTables_[cr3_] = std::make_unique<PageTableEntry[]>(pgdEntryNum);
         // memset all entries to 0
-        std::fill_n(pageTables[cr3].get(), pgdEntrySize, PageTableEntry());
-        pgdStats.allocations++;
+        std::fill_n(pageTables_[cr3_].get(), pgdEntryNum, PageTableEntry());
+        pgdStats_.allocations++;
         // assert that the page table entry is power of 2
-        assert((pgdEntrySize & (pgdEntrySize - 1)) == 0);
-        assert((pudEntrySize & (pudEntrySize - 1)) == 0);
-        assert((pmdEntrySize & (pmdEntrySize - 1)) == 0);
-        assert((pteEntrySize & (pteEntrySize - 1)) == 0);
-        assert(PGD_SHIFT + static_log2(pgdEntrySize) == 48);
+        assert((pgdEntryNum & (pgdEntryNum - 1)) == 0);
+        assert((pudEntryNum & (pudEntryNum - 1)) == 0);
+        assert((pmdEntryNum & (pmdEntryNum - 1)) == 0);
+        assert((pteEntryNum & (pteEntryNum - 1)) == 0);
+        assert(pgdShift_ + StaticLog2(pgdEntryNum) == 48);
 
-        if (TOCEnabled) {
-            assert(TOCSize > 0 && (TOCSize & (TOCSize - 1)) == 0);
-            pgdPwc.setTOCEnabled(true);
-            pgdPwc.setTOCSize(TOCSize);
-            pudPwc.setTOCEnabled(true);
-            pudPwc.setTOCSize(TOCSize);
-            pmdPwc.setTOCEnabled(true);
-            pmdPwc.setTOCSize(TOCSize);
+        if (tocEnabled) {
+            assert(tocSize > 0 && (tocSize & (tocSize - 1)) == 0);
+            pgdPwc_.SetTocEnabled(true);
+            pgdPwc_.SetTocSize(tocSize);
+            pudPwc_.SetTocEnabled(true);
+            pudPwc_.SetTocSize(tocSize);
+            pmdPwc_.SetTocEnabled(true);
+            pmdPwc_.SetTocSize(tocSize);
         } else {
-            assert(TOCSize == 0);
+            assert(tocSize == 0);
         }
     }
 
     // Get indexes into the page tables for a given virtual address
-    UINT32 getPgdIndex(ADDRINT vaddr) const {
-        return (vaddr >> PGD_SHIFT) & PGD_MASK;
+    UINT64 GetPgdIndex(ADDRINT vaddr) const {
+        return (vaddr >> pgdShift_) & pgdMask_;
     }
 
-    UINT32 getPudIndex(ADDRINT vaddr) const {
-        return (vaddr >> PUD_SHIFT) & PUD_MASK;
+    UINT64 GetPudIndex(ADDRINT vaddr) const {
+        return (vaddr >> pudShift_) & pudMask_;
     }
 
-    UINT32 getPmdIndex(ADDRINT vaddr) const {
-        return (vaddr >> PMD_SHIFT) & PMD_MASK;
+    UINT64 GetPmdIndex(ADDRINT vaddr) const {
+        return (vaddr >> pmdShift_) & pmdMask_;
     }
 
-    UINT32 getPteIndex(ADDRINT vaddr) const {
-        return (vaddr >> PTE_INDEX_SHIFT) & PTE_MASK;
+    UINT64 GetPteIndex(ADDRINT vaddr) const {
+        return (vaddr >> pteIndexShift_) & pteMask_;
     }
 
-    UINT32 getOffset(ADDRINT vaddr) const { return vaddr & PAGE_MASK; }
+    UINT64 GetOffset(ADDRINT vaddr) const { return vaddr & kPageMask; }
 
     // Complete translation from PTE level - used by PMD PWC hit path
-    ADDRINT completePmdCacheHit(ADDRINT vaddr, UINT64 pteTablePfn) {
-        UINT64 pteAddr = pteTablePfn << PAGE_SHIFT;
-        UINT32 pteIndex = getPteIndex(vaddr);
-        UINT32 offset = getOffset(vaddr);
+    ADDRINT CompletePmdCacheHit(ADDRINT vaddr, UINT64 pteTablePfn) {
+        UINT64 pteAddr = pteTablePfn << kPageShift;
+        UINT64 pteIndex = GetPteIndex(vaddr);
+        UINT64 offset = GetOffset(vaddr);
 
         // Access the PTE table
-        UINT64 pteEntryAddr = pteAddr + (pteIndex * sizeof(PageTableEntry));
+        // the entry size is not sure to be 8Byte
+        UINT64 entrySize = kMemTracePageSize / pteEntryNum_;
+        UINT64 pteEntryAddr = pteAddr + (pteIndex * entrySize);
 
-        // Cache lookup for PTE entry (if cacheable)
+        // Cache Lookup for PTE entry (if cacheable)
         bool hit = false;
         UINT64 pteEntryValue = 0;
-        if (isPteCachable)
-            hit = dataCache.translate_lookup(pteEntryAddr, pteEntryValue);
-        PageTableEntry& pteEntry = pageTables[pteAddr][pteIndex];
+        if (isPteCachable_)
+            hit = dataCache_.TranslateLookup(pteEntryAddr, pteEntryValue,
+                                             translationStats_);
+        PageTableEntry& pteEntry = pageTables_[pteAddr][pteIndex];
 
         // Allocate physical page if not present
         if (!pteEntry.present) {
             pteEntry.present = 1;
             pteEntry.writable = 1;
-            pteEntry.pfn = physMem.allocateFrame();
-            pteStats.entries++;
+            pteEntry.pfn = physMem_.allocateFrame();
+            pteStats_.entries++;
             // assert(!hit);
         }
 
         // Handle memory/cache access
         if (hit) {
-            stats.pteDataCacheHits++;
+            translationStats_.pteDataCacheHits++;
         } else {
             // Either cache miss or non-cacheable PTE
-            if (isPteCachable) {
-                // dataCache.translate_lookup(pteEntryAddr, *((UINT64*)&pteEntry),
-                //                            true);
-                stats.pteDataCacheMisses++;
-                // dataCache.memAccessCount++;
-            }
-            stats.pageWalkMemAccess++;
-            pteStats.accesses++;
+            if (isPteCachable_)
+                translationStats_.pteDataCacheMisses++;
+            translationStats_.pageWalkMemAccess++;
+            pteStats_.accesses++;
         }
 
         // Return physical address
-        return (pteEntry.pfn << PAGE_SHIFT) | offset;
+        return (pteEntry.pfn << kPageShift) | offset;
     }
 
     // Complete translation from PMD level - used by PUD PWC hit path
-    ADDRINT completePudCacheHit(ADDRINT vaddr, UINT64 pmdTablePfn) {
-        UINT64 pmdAddr = pmdTablePfn << PAGE_SHIFT;
-        UINT32 pmdIndex = getPmdIndex(vaddr);
+    ADDRINT CompletePudCacheHit(ADDRINT vaddr, UINT64 pmdTablePfn) {
+        UINT64 pmdAddr = pmdTablePfn << kPageShift;
+        UINT64 pmdIndex = GetPmdIndex(vaddr);
 
         // Access the PMD table
-        UINT64 pmdEntryAddr = pmdAddr + (pmdIndex * sizeof(PageTableEntry));
+        UINT64 entrySize = kMemTracePageSize / pmdEntryNum_;
+        UINT64 pmdEntryAddr = pmdAddr + (pmdIndex * entrySize);
         // first access data cache
         UINT64 pmdEntryValue = 0;
-        // Cache lookup for PMD entry (if cacheable)
+        // Cache Lookup for PMD entry (if cacheable)
         bool hit = false;
-        if (isPteCachable)
-            hit = dataCache.translate_lookup(pmdEntryAddr, pmdEntryValue);
+        if (isPteCachable_)
+            hit = dataCache_.TranslateLookup(pmdEntryAddr, pmdEntryValue,
+                                             translationStats_);
 
-        PageTableEntry& pmdEntry = pageTables[pmdAddr][pmdIndex];
+        PageTableEntry& pmdEntry = pageTables_[pmdAddr][pmdIndex];
         // Allocate PTE if not present
         if (!pmdEntry.present) {
             pmdEntry.present = 1;
             pmdEntry.writable = 1;
-            pmdEntry.pfn = physMem.allocateFrame();
-            UINT64 pteAddr = pmdEntry.pfn * MEMTRACE_PAGE_SIZE;
-            pageTables[pteAddr] =
-                std::make_unique<PageTableEntry[]>(pteEntrySize);
+            pmdEntry.pfn = physMem_.allocateFrame();
+            UINT64 pteAddr = pmdEntry.pfn * kMemTracePageSize;
+            pageTables_[pteAddr] =
+                std::make_unique<PageTableEntry[]>(pteEntryNum_);
             // memset all entries to 0
-            std::fill_n(pageTables[pteAddr].get(), pteEntrySize,
+            std::fill_n(pageTables_[pteAddr].get(), pteEntryNum_,
                         PageTableEntry());
-            pteStats.allocations++;
-            pmdStats.entries++;
+            pteStats_.allocations++;
+            pmdStats_.entries++;
             // assert(!hit);
         }
         if (hit) {
-            stats.pteDataCacheHits++;
-            // assert(*((UINT64*)&pmdEntry) == pmdEntryValue);
+            translationStats_.pteDataCacheHits++;
         } else {
-            if (isPteCachable) {
-                // dataCache.translate_lookup(pmdEntryAddr, *((UINT64*)&pmdEntry),
-                //                            true);
-                stats.pteDataCacheMisses++;
-                // dataCache.memAccessCount++;
+            if (isPteCachable_) {
+                translationStats_.pteDataCacheMisses++;
             }
-            stats.pageWalkMemAccess++;
-            pmdStats.accesses++;
+            translationStats_.pageWalkMemAccess++;
+            pmdStats_.accesses++;
         }
 
         // Insert into PMD PWC
-        pmdPwc.insert(vaddr, pmdEntry.pfn);
+        pmdPwc_.Insert(vaddr, pmdEntry.pfn);
 
         // Complete the translation
-        return completePmdCacheHit(vaddr, pmdEntry.pfn);
+        return CompletePmdCacheHit(vaddr, pmdEntry.pfn);
     }
 
     // Complete translation from PUD level - used by PGD PWC hit path
-    ADDRINT completePgdCacheHit(ADDRINT vaddr, UINT64 pudTablePfn) {
-        UINT64 pudAddr = pudTablePfn << PAGE_SHIFT;
-        UINT32 pudIndex = getPudIndex(vaddr);
+    ADDRINT CompletePgdCacheHit(ADDRINT vaddr, UINT64 pudTablePfn) {
+        UINT64 pudAddr = pudTablePfn << kPageShift;
+        UINT64 pudIndex = GetPudIndex(vaddr);
 
         // Access the PUD table
-        UINT64 pudEntryAddr = pudAddr + (pudIndex * sizeof(PageTableEntry));
+        UINT64 entrySize = kMemTracePageSize / pudEntryNum_;
+        UINT64 pudEntryAddr = pudAddr + (pudIndex * entrySize);
         // first access data cache
         UINT64 pudEntryValue = 0;
         bool hit = false;
-        // Cache lookup for PUD entry (if cacheable)
-        if (isPteCachable)
-            hit = dataCache.translate_lookup(pudEntryAddr, pudEntryValue);
-        PageTableEntry& pudEntry = pageTables[pudAddr][pudIndex];
+        // Cache Lookup for PUD entry (if cacheable)
+        if (isPteCachable_)
+            hit = dataCache_.TranslateLookup(pudEntryAddr, pudEntryValue,
+                                             translationStats_);
+        PageTableEntry& pudEntry = pageTables_[pudAddr][pudIndex];
         // Allocate PMD if not present
         if (!pudEntry.present) {
             pudEntry.present = 1;
             pudEntry.writable = 1;
-            pudEntry.pfn = physMem.allocateFrame();
-            UINT64 pmdAddr = pudEntry.pfn * MEMTRACE_PAGE_SIZE;
-            pageTables[pmdAddr] =
-                std::make_unique<PageTableEntry[]>(pmdEntrySize);
+            pudEntry.pfn = physMem_.allocateFrame();
+            UINT64 pmdAddr = pudEntry.pfn * kMemTracePageSize;
+            pageTables_[pmdAddr] =
+                std::make_unique<PageTableEntry[]>(pmdEntryNum_);
             // memset all entries to 0
-            std::fill_n(pageTables[pmdAddr].get(), pmdEntrySize,
+            std::fill_n(pageTables_[pmdAddr].get(), pmdEntryNum_,
                         PageTableEntry());
-            pmdStats.allocations++;
-            pudStats.entries++;
-            // assert(!hit);
+            pmdStats_.allocations++;
+            pudStats_.entries++;
         }
 
         if (hit) {
-            stats.pteDataCacheHits++;
-            // assert(*((UINT64*)&pudEntry) == pudEntryValue);
+            translationStats_.pteDataCacheHits++;
         } else {
-            if (isPteCachable) {
-                // Access the data cache
-                // dataCache.translate_lookup(pudEntryAddr, *((UINT64*)&pudEntry),
-                //                            true);
-                stats.pteDataCacheMisses++;
-                // dataCache.memAccessCount++;
+            if (isPteCachable_) {
+                translationStats_.pteDataCacheMisses++;
             }
-            stats.pageWalkMemAccess++;
-            pudStats.accesses++;
+            translationStats_.pageWalkMemAccess++;
+            pudStats_.accesses++;
         }
 
         // Insert into PUD PWC
-        pudPwc.insert(vaddr, pudEntry.pfn);
+        pudPwc_.Insert(vaddr, pudEntry.pfn);
 
         // Complete the translation
-        return completePudCacheHit(vaddr, pudEntry.pfn);
+        return CompletePudCacheHit(vaddr, pudEntry.pfn);
     }
 
     // Complete a full page table walk
-    ADDRINT completeFullWalk(ADDRINT vaddr) {
+    ADDRINT CompleteFullWalk(ADDRINT vaddr) {
         // Step 1: Get PGD entry
-        UINT32 pgdIndex = getPgdIndex(vaddr);
-        UINT64 pgdAddr = cr3 + (pgdIndex * sizeof(PageTableEntry));
+        UINT64 pgdIndex = GetPgdIndex(vaddr);
+        UINT64 pgdAddr = cr3_ + (pgdIndex * sizeof(PageTableEntry));
         // first access data cache
         UINT64 pgdEntryValue = 0;
         bool hit = false;
-        // Cache lookup for PGD entry (if cacheable)
-        if (isPteCachable)
-            hit = dataCache.translate_lookup(pgdAddr, pgdEntryValue);
-        PageTableEntry& pgdEntry = pageTables[cr3][pgdIndex];
+        // Cache Lookup for PGD entry (if cacheable)
+        if (isPteCachable_)
+            hit = dataCache_.TranslateLookup(pgdAddr, pgdEntryValue,
+                                             translationStats_);
+        PageTableEntry& pgdEntry = pageTables_[cr3_][pgdIndex];
         // Allocate PUD if not present
         if (!pgdEntry.present) {
             pgdEntry.present = 1;
             pgdEntry.writable = 1;
-            pgdEntry.pfn = physMem.allocateFrame();
-            UINT64 pudAddr = pgdEntry.pfn * MEMTRACE_PAGE_SIZE;
-            pageTables[pudAddr] =
-                std::make_unique<PageTableEntry[]>(pudEntrySize);
+            pgdEntry.pfn = physMem_.allocateFrame();
+            UINT64 pudAddr = pgdEntry.pfn * kMemTracePageSize;
+            pageTables_[pudAddr] =
+                std::make_unique<PageTableEntry[]>(pudEntryNum_);
             // memset all entries to 0
-            std::fill_n(pageTables[pudAddr].get(), pudEntrySize,
+            std::fill_n(pageTables_[pudAddr].get(), pudEntryNum_,
                         PageTableEntry());
-            pudStats.allocations++;
-            pgdStats.entries++;
-            // assert(!hit);
+            pudStats_.allocations++;
+            pgdStats_.entries++;
         }
         if (hit) {
-            stats.pteDataCacheHits++;
-            // assert(*((UINT64*)&pgdEntry) == pgdEntryValue);
+            translationStats_.pteDataCacheHits++;
         } else {
-            if (isPteCachable) {
-                // Access the data cache
-                // dataCache.translate_lookup(pgdAddr, *((UINT64*)&pgdEntry),
-                //                            true);
-                stats.pteDataCacheMisses++;
-                // dataCache.memAccessCount++;
+            if (isPteCachable_) {
+                translationStats_.pteDataCacheMisses++;
             }
-            stats.pageWalkMemAccess++;
-            pgdStats.accesses++;
+            translationStats_.pageWalkMemAccess++;
+            pgdStats_.accesses++;
         }
 
         // Insert into PGD PWC
-        pgdPwc.insert(vaddr, pgdEntry.pfn);
+        pgdPwc_.Insert(vaddr, pgdEntry.pfn);
 
         // Continue with PUD level
-        return completePgdCacheHit(vaddr, pgdEntry.pfn);
+        return CompletePgdCacheHit(vaddr, pgdEntry.pfn);
     }
 
     // Translate a virtual address to physical address
-    ADDRINT translate(ADDRINT vaddr) {
+    ADDRINT Translate(ADDRINT vaddr) {
         // Extract the virtual page number and page offset
-        UINT64 vpn = vaddr >> PAGE_SHIFT;
-        UINT32 offset = getOffset(vaddr);
+        UINT64 vpn = vaddr >> kPageShift;
+        UINT64 offset = GetOffset(vaddr);
 
         // 1. Check L1 TLB first (fastest)
         UINT64 pfn;
-        if (l1Tlb.lookup(vpn, pfn)) {
-            stats.l1TlbHits++;
+        if (l1Tlb_.Lookup(vpn, pfn)) {
+            translationStats_.l1TlbHits++;
             // L1 TLB hit - combine PFN with offset
-            return (pfn << PAGE_SHIFT) | offset;
+            return (pfn << kPageShift) | offset;
         }
 
         // 2. L1 TLB miss - check L2 TLB
-        if (l2Tlb.lookup(vpn, pfn)) {
-            stats.l2TlbHits++;
+        if (l2Tlb_.Lookup(vpn, pfn)) {
+            translationStats_.l2TlbHits++;
 
             // L2 TLB hit - update L1 TLB with the translation
-            l1Tlb.insert(vpn, pfn);
+            l1Tlb_.Insert(vpn, pfn);
 
             // Combine PFN with offset
-            return (pfn << PAGE_SHIFT) | offset;
+            return (pfn << kPageShift) | offset;
         }
 
         // 3. L2 TLB miss - check PMD PWC (maps VA[47:21] to PTE table PFN)
         UINT64 pteTablePfn;
-        if (pmdPwc.lookup(vaddr, pteTablePfn)) {
-            stats.pmdCacheHits++;
-            ADDRINT paddr = completePmdCacheHit(vaddr, pteTablePfn);
+        if (pmdPwc_.Lookup(vaddr, pteTablePfn)) {
+            translationStats_.pmdCacheHits++;
+            ADDRINT paddr = CompletePmdCacheHit(vaddr, pteTablePfn);
 
             // Update both TLBs with the translation
-            pfn = paddr >> PAGE_SHIFT;
-            l1Tlb.insert(vpn, pfn);
-            l2Tlb.insert(vpn, pfn);
+            pfn = paddr >> kPageShift;
+            l1Tlb_.Insert(vpn, pfn);
+            l2Tlb_.Insert(vpn, pfn);
             return paddr;
         }
 
         // 4. PMD PWC miss - check PUD PWC (maps VA[47:30] to PMD table PFN)
         UINT64 pmdTablePfn;
-        if (pudPwc.lookup(vaddr, pmdTablePfn)) {
-            stats.pudCacheHits++;
-            ADDRINT paddr = completePudCacheHit(vaddr, pmdTablePfn);
+        if (pudPwc_.Lookup(vaddr, pmdTablePfn)) {
+            translationStats_.pudCacheHits++;
+            ADDRINT paddr = CompletePudCacheHit(vaddr, pmdTablePfn);
 
             // Update both TLBs with the translation
-            pfn = paddr >> PAGE_SHIFT;
-            l1Tlb.insert(vpn, pfn);
-            l2Tlb.insert(vpn, pfn);
+            pfn = paddr >> kPageShift;
+            l1Tlb_.Insert(vpn, pfn);
+            l2Tlb_.Insert(vpn, pfn);
             return paddr;
         }
 
         // 5. PUD PWC miss - check PGD PWC (maps VA[47:39] to PUD table PFN)
         UINT64 pudTablePfn;
-        if (pgdPwc.lookup(vaddr, pudTablePfn)) {
-            stats.pgdCacheHits++;
-            ADDRINT paddr = completePgdCacheHit(vaddr, pudTablePfn);
+        if (pgdPwc_.Lookup(vaddr, pudTablePfn)) {
+            translationStats_.pgdCacheHits++;
+            ADDRINT paddr = CompletePgdCacheHit(vaddr, pudTablePfn);
 
             // Update both TLBs with the translation
-            pfn = paddr >> PAGE_SHIFT;
-            l1Tlb.insert(vpn, pfn);
-            l2Tlb.insert(vpn, pfn);
+            pfn = paddr >> kPageShift;
+            l1Tlb_.Insert(vpn, pfn);
+            l2Tlb_.Insert(vpn, pfn);
             return paddr;
         }
 
         // 6. Full page table walk needed
-        stats.fullWalks++;
-        ADDRINT paddr = completeFullWalk(vaddr);
+        translationStats_.fullWalks++;
+        ADDRINT paddr = CompleteFullWalk(vaddr);
 
         // Update both TLBs with the translation
-        pfn = paddr >> PAGE_SHIFT;
-        l1Tlb.insert(vpn, pfn);
-        l2Tlb.insert(vpn, pfn);
+        pfn = paddr >> kPageShift;
+        l1Tlb_.Insert(vpn, pfn);
+        l2Tlb_.Insert(vpn, pfn);
         return paddr;
     }
 
     // Print detailed page table and cache statistics
-    void printDetailedStats(std::ostream& os) const {
-        // Calculate totals for translation paths
-        UINT64 totalTranslations = stats.GetTotalTranslation();
-
-        os << "\nTranslation Path Statistics:" << std::endl;
-        os << "===========================" << std::endl;
-        os << std::left << std::setw(30) << "Path" << std::right
-           << std::setw(15) << "Count" << std::setw(15) << "Percentage"
-           << std::endl;
-        os << std::string(60, '-') << std::endl;
-
-        os << std::left << std::setw(30) << "L1 TLB Hit" << std::right
-           << std::setw(15) << stats.l1TlbHits << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.l1TlbHits / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "L2 TLB Hit" << std::right
-           << std::setw(15) << stats.l2TlbHits << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.l2TlbHits / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "PMD PWC Hit" << std::right
-           << std::setw(15) << stats.pmdCacheHits << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.pmdCacheHits / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "PUD PWC Hit" << std::right
-           << std::setw(15) << stats.pudCacheHits << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.pudCacheHits / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "PGD PWC Hit" << std::right
-           << std::setw(15) << stats.pgdCacheHits << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.pgdCacheHits / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "Full Page Walk" << std::right
-           << std::setw(15) << stats.fullWalks << std::setw(15) << std::fixed
-           << std::setprecision(2)
-           << (totalTranslations > 0
-                   ? (double)stats.fullWalks / totalTranslations * 100.0
-                   : 0.0)
-           << "%" << std::endl;
-
-        os << std::left << std::setw(30) << "Total Translations" << std::right
-           << std::setw(15) << totalTranslations << std::setw(15) << "100.00%"
-           << std::endl;
-
-        // Calculate TLB efficiency
-        double tlbEfficiency = (double)(stats.l1TlbHits + stats.l2TlbHits) /
-                               totalTranslations * 100.0;
-        os << "\nTLB Efficiency: " << std::fixed << std::setprecision(2)
-           << tlbEfficiency << "% (translations resolved by L1 or L2 TLB)"
-           << std::endl;
+    void PrintDetailedStats(std::ostream& os) const {
+        translationStats_.PrintTranslationStats(os);
 
         // Cache statistics
         os << "\nCache Statistics:" << std::endl;
@@ -526,54 +430,56 @@ class PageTable {
         os << std::string(105, '-') << std::endl;
 
         // TLB stats
-        os << std::left << std::setw(30) << l1Tlb.getName() << std::setw(10)
-           << l1Tlb.getSize() << std::setw(10) << l1Tlb.getNumSets()
-           << std::setw(10) << l1Tlb.getNumWays() << std::right << std::setw(15)
-           << l1Tlb.getAccesses() << std::setw(15) << l1Tlb.getHits()
-           << std::setw(15) << std::fixed << std::setprecision(2)
-           << l1Tlb.getHitRate() * 100.0 << "%" << std::endl;
+        os << std::left << std::setw(30) << l1Tlb_.GetName() << std::setw(10)
+           << l1Tlb_.GetSize() << std::setw(10) << l1Tlb_.GetNumSets()
+           << std::setw(10) << l1Tlb_.GetNumWays() << std::right
+           << std::setw(15) << l1Tlb_.GetAccesses() << std::setw(15)
+           << l1Tlb_.GetHits() << std::setw(15) << std::fixed
+           << std::setprecision(2) << l1Tlb_.GetHitRate() * 100.0 << "%"
+           << std::endl;
 
-        os << std::left << std::setw(30) << l2Tlb.getName() << std::setw(10)
-           << l2Tlb.getSize() << std::setw(10) << l2Tlb.getNumSets()
-           << std::setw(10) << l2Tlb.getNumWays() << std::right << std::setw(15)
-           << l2Tlb.getAccesses() << std::setw(15) << l2Tlb.getHits()
-           << std::setw(15) << std::fixed << std::setprecision(2)
-           << l2Tlb.getHitRate() * 100.0 << "%" << std::endl;
+        os << std::left << std::setw(30) << l2Tlb_.GetName() << std::setw(10)
+           << l2Tlb_.GetSize() << std::setw(10) << l2Tlb_.GetNumSets()
+           << std::setw(10) << l2Tlb_.GetNumWays() << std::right
+           << std::setw(15) << l2Tlb_.GetAccesses() << std::setw(15)
+           << l2Tlb_.GetHits() << std::setw(15) << std::fixed
+           << std::setprecision(2) << l2Tlb_.GetHitRate() * 100.0 << "%"
+           << std::endl;
 
         // PWC stats
-        os << std::left << std::setw(30) << pgdPwc.getName() << std::setw(10)
-           << pgdPwc.getSize() << std::setw(10) << pgdPwc.getNumSets()
-           << std::setw(10) << pgdPwc.getNumWays() << std::right
-           << std::setw(15) << pgdPwc.getAccesses() << std::setw(15)
-           << pgdPwc.getHits() << std::setw(15) << std::fixed
-           << std::setprecision(2) << pgdPwc.getHitRate() * 100.0 << "%"
+        os << std::left << std::setw(30) << pgdPwc_.GetName() << std::setw(10)
+           << pgdPwc_.GetSize() << std::setw(10) << pgdPwc_.GetNumSets()
+           << std::setw(10) << pgdPwc_.GetNumWays() << std::right
+           << std::setw(15) << pgdPwc_.GetAccesses() << std::setw(15)
+           << pgdPwc_.GetHits() << std::setw(15) << std::fixed
+           << std::setprecision(2) << pgdPwc_.GetHitRate() * 100.0 << "%"
            << std::endl;
 
-        os << std::left << std::setw(30) << pudPwc.getName() << std::setw(10)
-           << pudPwc.getSize() << std::setw(10) << pudPwc.getNumSets()
-           << std::setw(10) << pudPwc.getNumWays() << std::right
-           << std::setw(15) << pudPwc.getAccesses() << std::setw(15)
-           << pudPwc.getHits() << std::setw(15) << std::fixed
-           << std::setprecision(2) << pudPwc.getHitRate() * 100.0 << "%"
+        os << std::left << std::setw(30) << pudPwc_.GetName() << std::setw(10)
+           << pudPwc_.GetSize() << std::setw(10) << pudPwc_.GetNumSets()
+           << std::setw(10) << pudPwc_.GetNumWays() << std::right
+           << std::setw(15) << pudPwc_.GetAccesses() << std::setw(15)
+           << pudPwc_.GetHits() << std::setw(15) << std::fixed
+           << std::setprecision(2) << pudPwc_.GetHitRate() * 100.0 << "%"
            << std::endl;
 
-        os << std::left << std::setw(30) << pmdPwc.getName() << std::setw(10)
-           << pmdPwc.getSize() << std::setw(10) << pmdPwc.getNumSets()
-           << std::setw(10) << pmdPwc.getNumWays() << std::right
-           << std::setw(15) << pmdPwc.getAccesses() << std::setw(15)
-           << pmdPwc.getHits() << std::setw(15) << std::fixed
-           << std::setprecision(2) << pmdPwc.getHitRate() * 100.0 << "%"
+        os << std::left << std::setw(30) << pmdPwc_.GetName() << std::setw(10)
+           << pmdPwc_.GetSize() << std::setw(10) << pmdPwc_.GetNumSets()
+           << std::setw(10) << pmdPwc_.GetNumWays() << std::right
+           << std::setw(15) << pmdPwc_.GetAccesses() << std::setw(15)
+           << pmdPwc_.GetHits() << std::setw(15) << std::fixed
+           << std::setprecision(2) << pmdPwc_.GetHitRate() * 100.0 << "%"
            << std::endl;
 
         os << "\nVirtual Address Bit Ranges Used for PWC Tags:" << std::endl;
-        os << std::left << std::setw(30) << pgdPwc.getName() << "["
-           << pgdPwc.getHighBit() << ":" << pgdPwc.getLowBit() << "]"
+        os << std::left << std::setw(30) << pgdPwc_.GetName() << "["
+           << pgdPwc_.GetHighBit() << ":" << pgdPwc_.GetLowBit() << "]"
            << std::endl;
-        os << std::left << std::setw(30) << pudPwc.getName() << "["
-           << pudPwc.getHighBit() << ":" << pudPwc.getLowBit() << "]"
+        os << std::left << std::setw(30) << pudPwc_.GetName() << "["
+           << pudPwc_.GetHighBit() << ":" << pudPwc_.GetLowBit() << "]"
            << std::endl;
-        os << std::left << std::setw(30) << pmdPwc.getName() << "["
-           << pmdPwc.getHighBit() << ":" << pmdPwc.getLowBit() << "]"
+        os << std::left << std::setw(30) << pmdPwc_.GetName() << "["
+           << pmdPwc_.GetHighBit() << ":" << pmdPwc_.GetLowBit() << "]"
            << std::endl;
 
         // Page table statistics by level
@@ -588,31 +494,37 @@ class PageTable {
         os << std::string(90, '-') << std::endl;
 
         // Calculate and print stats for each level
-        printLevelStats(os, pgdStats);
-        printLevelStats(os, pudStats);
-        printLevelStats(os, pmdStats);
-        printLevelStats(os, pteStats);
+        PrintLevelStats(os, pgdStats_);
+        PrintLevelStats(os, pudStats_);
+        PrintLevelStats(os, pmdStats_);
+        PrintLevelStats(os, pteStats_);
 
-        os << "\nTotal page tables: " << pageTables.size() << std::endl;
+        os << "\nTotal page tables: " << pageTables_.size() << std::endl;
         os << "Total memory for page tables: "
-           << (pageTables.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024.0)
+           << (pageTables_.size() * kMemTracePageSize) / (1024.0 * 1024.0)
            << " MB" << std::endl;
     }
 
-    void printMemoryStats(std::ostream& os) const {
+    void PrintMemoryStats(std::ostream& os) const {
         os << "\nCache Access Statistics (from Page Table):\n";
         os << "=========================================\n";
         os << std::left << std::setw(35) << "Page Table Entry data Cache Hits"
-           << std::right << std::setw(10) << stats.pteDataCacheHits << "\n";
+           << std::right << std::setw(10) << translationStats_.pteDataCacheHits
+           << "\n";
         os << std::left << std::setw(35) << "Page Table Entry data Cache Misses"
-           << std::right << std::setw(10) << stats.pteDataCacheMisses << "\n";
+           << std::right << std::setw(10)
+           << translationStats_.pteDataCacheMisses << "\n";
         os << std::left << std::setw(35) << "Page Walk Memory Accesses"
-           << std::right << std::setw(10) << stats.pageWalkMemAccess << "\n";
+           << std::right << std::setw(10) << translationStats_.pageWalkMemAccess
+           << "\n";
         os << std::left << std::setw(35) << "Page Table Entry Cache hits ratio"
            << std::right << std::setw(10)
-           << (stats.pteDataCacheHits + stats.pteDataCacheMisses > 0
-                   ? (double)stats.pteDataCacheHits /
-                         (stats.pteDataCacheHits + stats.pteDataCacheMisses) *
+           << (translationStats_.pteDataCacheHits +
+                           translationStats_.pteDataCacheMisses >
+                       0
+                   ? (double)translationStats_.pteDataCacheHits /
+                         (translationStats_.pteDataCacheHits +
+                          translationStats_.pteDataCacheMisses) *
                          100.0
                    : 0.0)
            << "%\n";
@@ -620,7 +532,7 @@ class PageTable {
 
    private:
     // Helper to print stats for a page table level
-    void printLevelStats(std::ostream& os,
+    void PrintLevelStats(std::ostream& os,
                          const PageTableLevelStats& stats) const {
         double avgFill = 0.0;
         if (stats.allocations > 0) {
@@ -637,32 +549,32 @@ class PageTable {
 
    public:
     // Get statistics
-    UINT64 getNumPageTables() const { return pageTables.size(); }
+    UINT64 GetNumPageTables() const { return pageTables_.size(); }
 
     // TLB statistics
-    double getL1TlbHitRate() const { return l1Tlb.getHitRate(); }
-    double getL2TlbHitRate() const { return l2Tlb.getHitRate(); }
-    UINT64 getL1TlbAccesses() const { return l1Tlb.getAccesses(); }
-    UINT64 getL2TlbAccesses() const { return l2Tlb.getAccesses(); }
-    UINT64 getL1TlbHits() const { return l1Tlb.getHits(); }
-    UINT64 getL2TlbHits() const { return l2Tlb.getHits(); }
+    double GetL1TlbHitRate() const { return l1Tlb_.GetHitRate(); }
+    double GetL2TlbHitRate() const { return l2Tlb_.GetHitRate(); }
+    UINT64 GetL1TlbAccesses() const { return l1Tlb_.GetAccesses(); }
+    UINT64 GetL2TlbAccesses() const { return l2Tlb_.GetAccesses(); }
+    UINT64 GetL1TlbHits() const { return l1Tlb_.GetHits(); }
+    UINT64 GetL2TlbHits() const { return l2Tlb_.GetHits(); }
 
     // Overall TLB efficiency
-    double getTlbEfficiency() const {
-        UINT64 totalTranslations = stats.GetTotalTranslation();
-        return totalTranslations > 0
-                   ? (double)(stats.l1TlbHits + stats.l2TlbHits) /
-                         totalTranslations
-                   : 0.0;
+    double GetTlbEfficiency() const {
+        UINT64 totalTranslations = translationStats_.GetTotalTranslation();
+        return totalTranslations > 0 ? (double)(translationStats_.l1TlbHits +
+                                                translationStats_.l2TlbHits) /
+                                           totalTranslations
+                                     : 0.0;
     }
 
     // Page walk statistics
-    UINT64 getPageTableWalks() const { return stats.fullWalks; }
-    UINT64 getFullWalks() const { return stats.fullWalks; }
-    UINT64 getPgdCacheHits() const { return stats.pgdCacheHits; }
-    UINT64 getPudCacheHits() const { return stats.pudCacheHits; }
-    UINT64 getPmdCacheHits() const { return stats.pmdCacheHits; }
-    double getPgdCacheHitRate() const { return pgdPwc.getHitRate(); }
-    double getPudCacheHitRate() const { return pudPwc.getHitRate(); }
-    double getPmdCacheHitRate() const { return pmdPwc.getHitRate(); }
+    UINT64 GetPageTableWalks() const { return translationStats_.fullWalks; }
+    UINT64 GetFullWalks() const { return translationStats_.fullWalks; }
+    UINT64 GetPgdCacheHits() const { return translationStats_.pgdCacheHits; }
+    UINT64 GetPudCacheHits() const { return translationStats_.pudCacheHits; }
+    UINT64 GetPmdCacheHits() const { return translationStats_.pmdCacheHits; }
+    double GetPgdCacheHitRate() const { return pgdPwc_.GetHitRate(); }
+    double GetPudCacheHitRate() const { return pudPwc_.GetHitRate(); }
+    double GetPmdCacheHitRate() const { return pmdPwc_.GetHitRate(); }
 };

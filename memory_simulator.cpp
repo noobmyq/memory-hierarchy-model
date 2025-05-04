@@ -21,31 +21,31 @@ class Simulator {
     Simulator(const SimConfig& config,
               std::unique_ptr<std::ofstream> out_stream = nullptr)
         : config_(config),
-          physical_memory_(config.physical_mem_bytes()),
+          physical_memory_(config.PhysicalMemBytes()),
           cache_hierarchy_(
-              config.cache.l1_size, config.cache.l1_ways, config.cache.l1_line,
-              config.cache.l2_size, config.cache.l2_ways, config.cache.l2_line,
-              config.cache.l3_size, config.cache.l3_ways, config.cache.l3_line),
+              config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
+              config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
+              config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
           page_table_(
-              physical_memory_, cache_hierarchy_, config.pgtbl.pte_cachable,
-              config.tlb.l1_size, config.tlb.l1_ways, config.tlb.l2_size,
-              config.tlb.l2_ways, config.pwc.pgdSize, config.pwc.pgdWays,
+              physical_memory_, cache_hierarchy_, config.pgtbl.pteCachable,
+              config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
+              config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
-              config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
-              config.pgtbl.pmd_size, config.pgtbl.pte_size,
-              config.pgtbl.TOCEnabled, config.pgtbl.TOCSize),
+              config.pwc.pmdWays, config.pgtbl.pgdSize, config.pgtbl.pudSize,
+              config.pgtbl.pmdSize, config.pgtbl.pteSize,
+              config.pgtbl.tocEnabled, config.pgtbl.tocSize),
           out_stream_(std::move(out_stream)) {}
     void process_batch(const MEMREF* buffer, UINT64 numElements) {
         for (UINT64 i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
             access_count_++;
             const ADDRINT vaddr = ref.ea;
-            const ADDRINT paddr = page_table_.translate(vaddr);
+            const ADDRINT paddr = page_table_.Translate(vaddr);
             UINT64 value = 0;
-            cache_hierarchy_.access(paddr, value, !ref.read);
+            cache_hierarchy_.Access(paddr, value, !ref.read);
 
-            // UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
-            // UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
+            // UINT64 vpn = vaddr / kMemTracePageSize;
+            // UINT64 ppn = paddr / kMemTracePageSize;
             // virtual_pages_[vpn]++;
             // physical_pages_[ppn]++;
 
@@ -63,11 +63,11 @@ class Simulator {
         //      << "Unique virtual pages: " << virtual_pages_.size() << "\n"
         //      << "Unique physical pages:" << physical_pages_.size() << "\n"
         //      << "Physical memory used: "
-        //      << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
+        //      << (physical_pages_.size() * kMemTracePageSize) / (1024.0 * 1024)
         //      << " MB\n";
-        page_table_.printDetailedStats(*out_stream_);
-        page_table_.printMemoryStats(*out_stream_);
-        cache_hierarchy_.printStats(*out_stream_);
+        page_table_.PrintDetailedStats(*out_stream_);
+        page_table_.PrintMemoryStats(*out_stream_);
+        cache_hierarchy_.PrintStats(*out_stream_);
     }
 
    private:
@@ -84,7 +84,7 @@ class Simulator {
 BUFFER_ID bufId;
 
 // --- Knobs for Simulator Configuration ---
-KNOB<UINT64> KnobPhysMemGB(KNOB_MODE_WRITEONCE, "pintool", "phys_mem_gb", "1",
+KNOB<UINT64> KnobPhysMemGB(KNOB_MODE_WRITEONCE, "pintool", "physMemGb", "1",
                            "Physical memory size in GB");
 KNOB<UINT64> KnobL1TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_size", "64",
                            "L1 TLB size");
@@ -108,13 +108,13 @@ KNOB<UINT64> KnobPMDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_ways", "4",
                             "PWC associativity");
 KNOB<UINT64> KnobL1CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l1_cache_size",
                              "32768", "L1 Cache size in bytes");
-KNOB<UINT64> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1_ways", "8",
+KNOB<UINT64> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1Ways", "8",
                         "L1 Cache associativity");
-KNOB<UINT64> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1_line", "64",
+KNOB<UINT64> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1Line", "64",
                         "L1 Cache line size");
 KNOB<UINT64> KnobL2CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l2_cache_size",
                              "262144", "L2 Cache size in bytes");
-KNOB<UINT64> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2_ways", "16",
+KNOB<UINT64> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2Ways", "16",
                         "L2 Cache associativity");
 KNOB<UINT64> KnobL2Line(KNOB_MODE_WRITEONCE, "pintool", "l2_line", "64",
                         "L2 Cache line size");
@@ -136,7 +136,7 @@ KNOB<UINT64> KnobPTESize(KNOB_MODE_WRITEONCE, "pintool", "pte_size", "512",
                          "Number of PTE entries");
 KNOB<bool> KnobTOCEnabled(KNOB_MODE_WRITEONCE, "pintool", "toc_enabled", "0",
                           "Enable Table of Contents (TOC) for PWC");
-KNOB<UINT32> KnobTOCSize(KNOB_MODE_WRITEONCE, "pintool", "toc_size", "0",
+KNOB<UINT64> KnobTOCSize(KNOB_MODE_WRITEONCE, "pintool", "toc_size", "0",
                          "Size of the Table of Contents (TOC) in bytes");
 KNOB<std::string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o",
                                  "memory_simulator.out",
@@ -148,13 +148,13 @@ VOID Trace(TRACE trace, VOID* v) {
         for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
             if (!INS_IsStandardMemop(ins))
                 continue;
-            UINT32 memOps = INS_MemoryOperandCount(ins);
-            for (UINT32 memOp = 0; memOp < memOps; memOp++) {
+            UINT64 memOps = INS_MemoryOperandCount(ins);
+            for (UINT64 memOp = 0; memOp < memOps; memOp++) {
                 if (INS_MemoryOperandIsRead(ins, memOp)) {
                     INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
                                          IARG_INST_PTR, offsetof(MEMREF, pc),
                                          IARG_MEMORYOP_EA, memOp,
-                                         offsetof(MEMREF, ea), IARG_UINT32,
+                                         offsetof(MEMREF, ea), IARG_UINT64,
                                          INS_MemoryOperandSize(ins, memOp),
                                          offsetof(MEMREF, size), IARG_BOOL,
                                          INS_MemoryOperandIsRead(ins, memOp),
@@ -164,7 +164,7 @@ VOID Trace(TRACE trace, VOID* v) {
                     INS_InsertFillBuffer(ins, IPOINT_BEFORE, bufId,
                                          IARG_INST_PTR, offsetof(MEMREF, pc),
                                          IARG_MEMORYOP_EA, memOp,
-                                         offsetof(MEMREF, ea), IARG_UINT32,
+                                         offsetof(MEMREF, ea), IARG_UINT64,
                                          INS_MemoryOperandSize(ins, memOp),
                                          offsetof(MEMREF, size), IARG_BOOL,
                                          INS_MemoryOperandIsRead(ins, memOp),
@@ -205,33 +205,33 @@ int main(int argc, char* argv[]) {
 
     // Configure simulator using knobs
     SimConfig config;
-    config.phys_mem_gb = KnobPhysMemGB.Value();
-    config.tlb.l1_size = KnobL1TLBSize.Value();
-    config.tlb.l1_ways = KnobL1TLBWays.Value();
-    config.tlb.l2_size = KnobL2TLBSize.Value();
-    config.tlb.l2_ways = KnobL2TLBWays.Value();
+    config.physMemGb = KnobPhysMemGB.Value();
+    config.tlb.l1Size = KnobL1TLBSize.Value();
+    config.tlb.l1Ways = KnobL1TLBWays.Value();
+    config.tlb.l2Size = KnobL2TLBSize.Value();
+    config.tlb.l2Ways = KnobL2TLBWays.Value();
     config.pwc.pgdSize = KnobPGDPWCSize.Value();
     config.pwc.pgdWays = KnobPGDPWCWays.Value();
     config.pwc.pudSize = KnobPUDPWCSize.Value();
     config.pwc.pudWays = KnobPUDPWCWays.Value();
     config.pwc.pmdSize = KnobPMDPWCSize.Value();
     config.pwc.pmdWays = KnobPMDPWCWays.Value();
-    config.cache.l1_size = KnobL1CacheSize.Value();
-    config.cache.l1_ways = KnobL1Ways.Value();
-    config.cache.l1_line = KnobL1Line.Value();
-    config.cache.l2_size = KnobL2CacheSize.Value();
-    config.cache.l2_ways = KnobL2Ways.Value();
-    config.cache.l2_line = KnobL2Line.Value();
-    config.cache.l3_size = KnobL3CacheSize.Value();
-    config.cache.l3_ways = KnobL3Ways.Value();
-    config.cache.l3_line = KnobL3Line.Value();
-    config.pgtbl.pte_cachable = (KnobPteCachable.Value() != 0);
-    config.pgtbl.pgd_size = KnobPGDSize.Value();
-    config.pgtbl.pud_size = KnobPUDSize.Value();
-    config.pgtbl.pmd_size = KnobPMDSize.Value();
-    config.pgtbl.pte_size = KnobPTESize.Value();
-    config.pgtbl.TOCEnabled = KnobTOCEnabled.Value();
-    config.pgtbl.TOCSize = KnobTOCSize.Value();
+    config.cache.l1Size = KnobL1CacheSize.Value();
+    config.cache.l1Ways = KnobL1Ways.Value();
+    config.cache.l1Line = KnobL1Line.Value();
+    config.cache.l2Size = KnobL2CacheSize.Value();
+    config.cache.l2Ways = KnobL2Ways.Value();
+    config.cache.l2Line = KnobL2Line.Value();
+    config.cache.l3Size = KnobL3CacheSize.Value();
+    config.cache.l3Ways = KnobL3Ways.Value();
+    config.cache.l3Line = KnobL3Line.Value();
+    config.pgtbl.pteCachable = (KnobPteCachable.Value() != 0);
+    config.pgtbl.pgdSize = KnobPGDSize.Value();
+    config.pgtbl.pudSize = KnobPUDSize.Value();
+    config.pgtbl.pmdSize = KnobPMDSize.Value();
+    config.pgtbl.pteSize = KnobPTESize.Value();
+    config.pgtbl.tocEnabled = KnobTOCEnabled.Value();
+    config.pgtbl.tocSize = KnobTOCSize.Value();
 
     // Open output file
     auto out_file = std::make_unique<std::ofstream>(KnobOutputFile.Value());
@@ -241,7 +241,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    config.print(*out_file);
+    config.Print(*out_file);
 
     // Initialize simulator
     Simulator* simulator = new Simulator(config, std::move(out_file));

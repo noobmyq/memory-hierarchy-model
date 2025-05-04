@@ -7,10 +7,10 @@
 class TLB : public SetAssociativeCache<UINT64, UINT64> {
    protected:
     // Hash function to map VPN to set index
-    UINT64 getSetIndex(const UINT64& vpn) const override {
-        return vpn % numSets;
+    UINT64 GetSetIndex(const UINT64& vpn) const override {
+        return vpn % numSets_;
     }
-    void handleEviction(const UINT64& vpn, const UINT64& pfn,
+    void HandleEviction(const UINT64& vpn, const UINT64& pfn,
                         bool dirty) override {
         // No eviction handling needed for TLB
         // (TLB entries are not written back to memory)
@@ -25,12 +25,12 @@ class TLB : public SetAssociativeCache<UINT64, UINT64> {
               associativity) {}
 
     // VPN to PFN mapping lookup
-    bool lookup(UINT64 vpn, UINT64& pfn) {
-        return SetAssociativeCache<UINT64, UINT64>::lookup(vpn, pfn);
+    bool Lookup(UINT64 vpn, UINT64& pfn) {
+        return SetAssociativeCache<UINT64, UINT64>::Lookup(vpn, pfn);
     }
 
     // Insert VPN to PFN mapping
-    void insert(UINT64 vpn, UINT64 pfn) {
-        SetAssociativeCache<UINT64, UINT64>::insert(vpn, pfn);
+    void Insert(UINT64 vpn, UINT64 pfn) {
+        SetAssociativeCache<UINT64, UINT64>::Insert(vpn, pfn);
     }
 };

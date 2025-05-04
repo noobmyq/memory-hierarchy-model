@@ -7,11 +7,11 @@
 // if table of contents (TOC) is enabled, the value type is a pointer
 class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
    private:
-    bool TOCEnabled = false;
-    UINT32 indexBitsLow;   // Low bit position for VA tag extraction
-    UINT32 indexBitsHigh;  // High bit position for VA tag extraction
-    UINT32 TOCSize = 4;    // Size of the table of contents (TOC) in bytes
-    UINT64 TOCMask = 0;    // Mask for TOC size
+    bool tocEnabled_ = false;
+    UINT64 indexBitsLow_;   // Low bit position for VA tag extraction
+    UINT64 indexBitsHigh_;  // High bit position for VA tag extraction
+    UINT64 tocSize_ = 4;    // Size of the table of contents (TOC) in bytes
+    UINT64 tocMask_ = 0;    // Mask for TOC size
 
     typedef struct TOCEntry {
         bool valid = false;  // Tag for the entry
@@ -20,11 +20,11 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
    protected:
     // Hash function to map VA tag to set index
-    UINT64 getSetIndex(const UINT64& vaTag) const override {
-        return vaTag % numSets;
+    UINT64 GetSetIndex(const UINT64& vaTag) const override {
+        return vaTag % numSets_;
     }
 
-    void handleEviction(const UINT64& vaTag, const UINT64& pfn,
+    void HandleEviction(const UINT64& vaTag, const UINT64& pfn,
                         bool dirty) override {
         // No eviction handling needed for PWC
         // (PWC entries are not written back to memory)
@@ -32,56 +32,56 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
    public:
     PageWalkCache(const std::string& cacheName, UINT64 numEntries = 16,
-                  UINT64 associativity = 4, UINT32 lowBit = 0,
-                  UINT32 highBit = 63)
+                  UINT64 associativity = 4, UINT64 lowBit = 0,
+                  UINT64 highBit = 63)
         : SetAssociativeCache<UINT64, UINT64>(
               cacheName,
               numEntries / associativity,  // Sets = Total entries / Ways
               associativity),
-          indexBitsLow(lowBit),
-          indexBitsHigh(highBit) {
-        for (UINT64 i = 0; i < numSets; i++) {
-            for (UINT64 j = 0; j < numWays; j++) {
-                sets[i][j].value =
-                    (UINT64) nullptr;      // Initialize value to nullptr
-                sets[i][j].valid = false;  // Initialize valid bit to false
+          indexBitsLow_(lowBit),
+          indexBitsHigh_(highBit) {
+        for (UINT64 i = 0; i < numSets_; i++) {
+            for (UINT64 j = 0; j < numWays_; j++) {
+                sets_[i][j].value =
+                    (UINT64) nullptr;       // Initialize value to nullptr
+                sets_[i][j].valid = false;  // Initialize valid bit to false
             }
         }
     }
 
-    void setTOCEnabled(bool enabled) { TOCEnabled = enabled; }
-    bool isTOCEnabled() const { return TOCEnabled; }
-    void setTOCSize(UINT32 size) {
-        TOCSize = size;
-        TOCMask = ((UINT64)size - 1ULL) << (UINT64)indexBitsLow;
-        indexBitsLow += __builtin_ctz(size);
+    void SetTocEnabled(bool enabled) { tocEnabled_ = enabled; }
+    bool IsTocEnabled() const { return tocEnabled_; }
+    void SetTocSize(UINT64 size) {
+        tocSize_ = size;
+        tocMask_ = ((UINT64)size - 1ULL) << (UINT64)indexBitsLow_;
+        indexBitsLow_ += __builtin_ctz(size);
     }
-    UINT32 getTOCSize() const { return TOCSize; }
+    UINT64 GetTocSize() const { return tocSize_; }
 
     // Extract tag from virtual address
-    UINT64 getTag(ADDRINT vaddr) const {
-        UINT64 mask = ((1ULL << (indexBitsHigh - indexBitsLow + 1)) - 1)
-                      << indexBitsLow;
-        return (vaddr & mask) >> indexBitsLow;
+    UINT64 GetTag(ADDRINT vaddr) const {
+        UINT64 mask = ((1ULL << (indexBitsHigh_ - indexBitsLow_ + 1)) - 1)
+                      << indexBitsLow_;
+        return (vaddr & mask) >> indexBitsLow_;
     }
 
     // Look up translation for a virtual address
-    bool lookup(ADDRINT vaddr, UINT64& nextLevelPfn) {
-        UINT64 tag = getTag(vaddr);
-        if (TOCEnabled) {
-            this->accesses++;
-            UINT64 setIndex = getSetIndex(tag);
-            UINT32 TOCIndex =
-                (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
+    bool Lookup(ADDRINT vaddr, UINT64& nextLevelPfn) {
+        UINT64 tag = GetTag(vaddr);
+        if (tocEnabled_) {
+            this->accesses_++;
+            UINT64 setIndex = GetSetIndex(tag);
+            UINT64 tocIndex =
+                (vaddr & tocMask_) >> (indexBitsLow_ - __builtin_ctz(tocSize_));
 
-            for (UINT64 way = 0; way < numWays; way++) {
-                if (sets[setIndex][way].valid &&
-                    sets[setIndex][way].tag == tag) {
-                    TOCEntry* TOCPtr = (TOCEntry*)(sets[setIndex][way].value);
-                    if (TOCPtr[TOCIndex].valid) {
-                        nextLevelPfn = TOCPtr[TOCIndex].value;
-                        this->hits++;
-                        updateLru(setIndex, way);
+            for (UINT64 way = 0; way < numWays_; way++) {
+                if (sets_[setIndex][way].valid &&
+                    sets_[setIndex][way].tag == tag) {
+                    TOCEntry* tocPtr = (TOCEntry*)(sets_[setIndex][way].value);
+                    if (tocPtr[tocIndex].valid) {
+                        nextLevelPfn = tocPtr[tocIndex].value;
+                        this->hits_++;
+                        UpdateLru(setIndex, way);
                         return true;
                     } else {
                         // Entry is not valid, return false
@@ -92,54 +92,54 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
             return false;
         }
-        return SetAssociativeCache<UINT64, UINT64>::lookup(tag, nextLevelPfn);
+        return SetAssociativeCache<UINT64, UINT64>::Lookup(tag, nextLevelPfn);
     }
 
     // Insert translation for a virtual address
-    void insert(ADDRINT vaddr, UINT64 nextLevelPfn) {
-        UINT64 tag = getTag(vaddr);
-        if (TOCEnabled) {
-            UINT64 setIndex = getSetIndex(tag);
-            UINT32 TOCIndex =
-                (vaddr & TOCMask) >> (indexBitsLow - __builtin_ctz(TOCSize));
-            for (UINT64 way = 0; way < numWays; way++) {
-                if (sets[setIndex][way].valid &&
-                    sets[setIndex][way].tag == tag) {
+    void Insert(ADDRINT vaddr, UINT64 nextLevelPfn) {
+        UINT64 tag = GetTag(vaddr);
+        if (tocEnabled_) {
+            UINT64 setIndex = GetSetIndex(tag);
+            UINT64 tocIndex =
+                (vaddr & tocMask_) >> (indexBitsLow_ - __builtin_ctz(tocSize_));
+            for (UINT64 way = 0; way < numWays_; way++) {
+                if (sets_[setIndex][way].valid &&
+                    sets_[setIndex][way].tag == tag) {
                     // Entry already exists, update TOC entry
-                    TOCEntry* TOCPtr = (TOCEntry*)(sets[setIndex][way].value);
+                    TOCEntry* tocPtr = (TOCEntry*)(sets_[setIndex][way].value);
                     // Update TOC entry
-                    TOCPtr[TOCIndex].valid = true;
-                    TOCPtr[TOCIndex].value = nextLevelPfn;
-                    updateLru(setIndex, way);
+                    tocPtr[tocIndex].valid = true;
+                    tocPtr[tocIndex].value = nextLevelPfn;
+                    UpdateLru(setIndex, way);
                     return;
                 }
             }
 
             // Entry does not exist, choose a victim
-            UINT64 way = findLruWay(setIndex);
-            bool evictValid = sets[setIndex][way].valid;
+            UINT64 way = FindLruWay(setIndex);
+            bool evictValid = sets_[setIndex][way].valid;
             bool evictDirty = false;
             UINT64 evictTag;
             TOCEntry* evictTOCPtr = nullptr;
             if (evictValid) {
-                evictTag = sets[setIndex][way].tag;
-                evictTOCPtr = (TOCEntry*)(sets[setIndex][way].value);
-                evictDirty = evictTOCPtr[TOCIndex].valid;
+                evictTag = sets_[setIndex][way].tag;
+                evictTOCPtr = (TOCEntry*)(sets_[setIndex][way].value);
+                evictDirty = evictTOCPtr[tocIndex].valid;
             }
 
             // Allocate new TOC entry if needed
-            sets[setIndex][way].value =
-                (UINT64) new TOCEntry[TOCSize]{};  // Allocate TOC entry
-            TOCEntry* TOCPtr = (TOCEntry*)(sets[setIndex][way].value);
-            for (UINT32 i = 0; i < TOCSize; i++) {
-                TOCPtr[i].valid = false;  // Initialize TOC entry to invalid
+            sets_[setIndex][way].value =
+                (UINT64) new TOCEntry[tocSize_]{};  // Allocate TOC entry
+            TOCEntry* tocPtr = (TOCEntry*)(sets_[setIndex][way].value);
+            for (UINT64 i = 0; i < tocSize_; i++) {
+                tocPtr[i].valid = false;  // Initialize TOC entry to invalid
             }
-            TOCPtr[TOCIndex].valid = true;  // Set the new entry to valid
-            TOCPtr[TOCIndex].value = nextLevelPfn;  // Set the new entry value
-            sets[setIndex][way].tag = tag;          // Set the tag
-            sets[setIndex][way].valid = true;       // Set the entry to valid
-            sets[setIndex][way].dirty = false;  // Set the entry to not dirty
-            updateLru(setIndex, way);           // Update LRU for the set
+            tocPtr[tocIndex].valid = true;  // Set the new entry to valid
+            tocPtr[tocIndex].value = nextLevelPfn;  // Set the new entry value
+            sets_[setIndex][way].tag = tag;         // Set the tag
+            sets_[setIndex][way].valid = true;      // Set the entry to valid
+            sets_[setIndex][way].dirty = false;  // Set the entry to not dirty
+            UpdateLru(setIndex, way);            // Update LRU for the set
 
             // Handle eviction if needed
             if (evictValid) {
@@ -148,10 +148,10 @@ class PageWalkCache : public SetAssociativeCache<UINT64, UINT64> {
 
             return;
         }
-        SetAssociativeCache<UINT64, UINT64>::insert(tag, nextLevelPfn);
+        SetAssociativeCache<UINT64, UINT64>::Insert(tag, nextLevelPfn);
     }
 
     // Get bit range used for tag extraction
-    UINT32 getLowBit() const { return indexBitsLow; }
-    UINT32 getHighBit() const { return indexBitsHigh; }
+    UINT64 GetLowBit() const { return indexBitsLow_; }
+    UINT64 GetHighBit() const { return indexBitsHigh_; }
 };

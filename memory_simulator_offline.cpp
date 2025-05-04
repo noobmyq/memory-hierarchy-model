@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -21,25 +20,25 @@ class OfflineAnalyzer {
    public:
     OfflineAnalyzer(const SimConfig& config)
         : config_(config),
-          physical_memory_(config.physical_mem_bytes()),
-          cache_hierarchy_(
-              config.cache.l1_size, config.cache.l1_ways, config.cache.l1_line,
-              config.cache.l2_size, config.cache.l2_ways, config.cache.l2_line,
-              config.cache.l3_size, config.cache.l3_ways, config.cache.l3_line),
-          page_table_(
-              physical_memory_, cache_hierarchy_, config.pgtbl.pte_cachable,
-              config.tlb.l1_size, config.tlb.l1_ways, config.tlb.l2_size,
-              config.tlb.l2_ways, config.pwc.pgdSize, config.pwc.pgdWays,
-              config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
-              config.pwc.pmdWays, config.pgtbl.pgd_size, config.pgtbl.pud_size,
-              config.pgtbl.pmd_size, config.pgtbl.pte_size,
-              config.pgtbl.TOCEnabled, config.pgtbl.TOCSize) {}
+          physicalMemory_(config.PhysicalMemBytes()),
+          cacheHierarchy_(
+              config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
+              config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
+              config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
+          pageTable_(physicalMemory_, cacheHierarchy_, config.pgtbl.pteCachable,
+                     config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
+                     config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
+                     config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
+                     config.pwc.pmdWays, config.pgtbl.pgdSize,
+                     config.pgtbl.pudSize, config.pgtbl.pmdSize,
+                     config.pgtbl.pteSize, config.pgtbl.tocEnabled,
+                     config.pgtbl.tocSize) {}
 
-    bool run() {
+    bool Run() {
         // Open trace file
-        std::ifstream input(config_.trace_file, std::ios::binary);
+        std::ifstream input(config_.traceFile, std::ios::binary);
         if (!input.is_open()) {
-            cerr << "Error: Could not open trace file: " << config_.trace_file
+            cerr << "Error: Could not open trace file: " << config_.traceFile
                  << endl;
             return false;
         }
@@ -47,129 +46,128 @@ class OfflineAnalyzer {
         cout << "Starting offline analysis..." << endl;
 
         // Initialize buffer for batch processing
-        std::vector<MEMREF> buffer(config_.batch_size);
+        std::vector<MEMREF> buffer(config_.batchSize);
 
         // Timer for progress reporting
-        auto start_time = std::chrono::high_resolution_clock::now();
-        auto last_report_time = start_time;
+        auto startTime = std::chrono::high_resolution_clock::now();
+        auto lastReportTime = startTime;
 
         while (true) {
             // Read a batch of MEMREF entries from the trace file
             input.read(reinterpret_cast<char*>(buffer.data()),
-                       config_.batch_size * sizeof(MEMREF));
+                       config_.batchSize * sizeof(MEMREF));
 
-            std::streamsize bytes_read = input.gcount();
-            if (bytes_read == 0) {
+            std::streamsize bytesRead = input.gcount();
+            if (bytesRead == 0) {
                 // End of file reached
                 break;
             }
 
             // Calculate number of complete records read
-            UINT64 records_read = bytes_read / sizeof(MEMREF);
-            if (bytes_read % sizeof(MEMREF) != 0) {
+            UINT64 recordsRead = bytesRead / sizeof(MEMREF);
+            if (bytesRead % sizeof(MEMREF) != 0) {
                 cerr << "Warning: Partial record detected at end of file. "
                         "Skipping."
                      << endl;
             }
 
             // Process each MEMREF in the batch
-            process_batch(buffer.data(), records_read);
+            ProcessBatch(buffer.data(), recordsRead);
 
             // Report progress every few seconds
-            auto current_time = std::chrono::high_resolution_clock::now();
+            auto currentTime = std::chrono::high_resolution_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                               current_time - last_report_time)
+                               currentTime - lastReportTime)
                                .count();
 
             if (elapsed >= 5) {  // Report every 5 seconds
-                cout << "Processed " << access_count_ << " accesses\r"
+                cout << "Processed " << accessCount_ << " accesses\r"
                      << std::flush;
-                last_report_time = current_time;
+                lastReportTime = currentTime;
             }
         }
 
         input.close();
 
         // Final time calculation
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto total_duration = std::chrono::duration_cast<std::chrono::seconds>(
-                                  end_time - start_time)
-                                  .count();
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto totalDuration = std::chrono::duration_cast<std::chrono::seconds>(
+                                 endTime - startTime)
+                                 .count();
 
-        cout << "\nAnalysis complete in " << total_duration << " seconds."
+        cout << "\nAnalysis complete in " << totalDuration << " seconds."
              << endl;
         return true;
     }
 
-    void process_batch(const MEMREF* buffer, UINT64 num_elements) {
-        for (UINT64 i = 0; i < num_elements; ++i) {
+    void ProcessBatch(const MEMREF* buffer, UINT64 numElements) {
+        for (UINT64 i = 0; i < numElements; ++i) {
             const MEMREF& ref = buffer[i];
-            access_count_++;
+            accessCount_++;
 
             const ADDRINT vaddr = ref.ea;
-            const ADDRINT paddr = page_table_.translate(vaddr);
+            const ADDRINT paddr = pageTable_.Translate(vaddr);
 
             UINT64 value = 0;
-            cache_hierarchy_.access(paddr, value, !ref.read);
+            cacheHierarchy_.Access(paddr, value, !ref.read);
 
             // Track unique virtual and physical pages
-            UINT64 vpn = vaddr / MEMTRACE_PAGE_SIZE;
-            UINT64 ppn = paddr / MEMTRACE_PAGE_SIZE;
-            virtual_pages_[vpn]++;
-            physical_pages_[ppn]++;
+            UINT64 vpn = vaddr / kMemTracePageSize;
+            UINT64 ppn = paddr / kMemTracePageSize;
+            virtualPages_[vpn]++;
+            physicalPages_[ppn]++;
         }
     }
 
-    void print_stats() {
+    void PrintStats() {
         cout << "\n\nOffline Analysis Results:\n"
              << "========================\n"
-             << "Total accesses:       " << access_count_ << "\n"
-             << "Unique virtual pages: " << virtual_pages_.size() << "\n"
-             << "Unique physical pages:" << physical_pages_.size() << "\n"
+             << "Total accesses:       " << accessCount_ << "\n"
+             << "Unique virtual pages: " << virtualPages_.size() << "\n"
+             << "Unique physical pages:" << physicalPages_.size() << "\n"
              << "Physical memory used: "
-             << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) / (1024.0 * 1024)
+             << (physicalPages_.size() * kMemTracePageSize) / (1024.0 * 1024)
              << " MB\n";
 
-        page_table_.printDetailedStats(cout);
-        page_table_.printMemoryStats(cout);
-        cache_hierarchy_.printStats(cout);
+        pageTable_.PrintDetailedStats(cout);
+        pageTable_.PrintMemoryStats(cout);
+        cacheHierarchy_.PrintStats(cout);
 
         // Optionally save detailed output to a file
-        std::string output_file = config_.trace_file + ".analysis.txt";
-        std::ofstream outfile(output_file);
+        std::string outputFile = config_.traceFile + ".analysis.txt";
+        std::ofstream outfile(outputFile);
         if (outfile.is_open()) {
             outfile << "Offline Analysis Results:\n"
                     << "========================\n"
-                    << "Total accesses:       " << access_count_ << "\n"
-                    << "Unique virtual pages: " << virtual_pages_.size() << "\n"
-                    << "Unique physical pages:" << physical_pages_.size()
-                    << "\n"
+                    << "Total accesses:       " << accessCount_ << "\n"
+                    << "Unique virtual pages: " << virtualPages_.size() << "\n"
+                    << "Unique physical pages:" << physicalPages_.size() << "\n"
                     << "Physical memory used: "
-                    << (physical_pages_.size() * MEMTRACE_PAGE_SIZE) /
+                    << (physicalPages_.size() * kMemTracePageSize) /
                            (1024.0 * 1024)
                     << " MB\n";
 
-            page_table_.printDetailedStats(outfile);
-            page_table_.printMemoryStats(outfile);
-            cache_hierarchy_.printStats(outfile);
+            pageTable_.PrintDetailedStats(outfile);
+            pageTable_.PrintMemoryStats(outfile);
+            cacheHierarchy_.PrintStats(outfile);
 
             outfile.close();
-            cout << "Detailed results saved to " << output_file << endl;
+            cout << "Detailed results saved to " << outputFile << endl;
         }
     }
 
    private:
     SimConfig config_;
-    PhysicalMemory physical_memory_;
-    CacheHierarchy cache_hierarchy_;
-    PageTable page_table_;
-    UINT64 access_count_ = 0;
-    std::unordered_map<UINT64, UINT64> virtual_pages_;
-    std::unordered_map<UINT64, UINT64> physical_pages_;
+    PhysicalMemory physicalMemory_;
+    CacheHierarchy cacheHierarchy_;
+    PageTable pageTable_;
+    UINT64 accessCount_ = 0;
+    std::unordered_map<UINT64, UINT64> virtualPages_;
+    std::unordered_map<UINT64, UINT64> physicalPages_;
 };
 
 // --- Command Line Argument Parsing ---
-SimConfig parse_args(int argc, char* argv[]) {
+SimConfig ParseArgs(int argc, char* argv[]) {
     SimConfig config;
 
     // Default values are already set in the SimConfig struct
@@ -178,12 +176,12 @@ SimConfig parse_args(int argc, char* argv[]) {
         std::string arg = argv[i];
 
         if (arg == "-h" || arg == "--help") {
-            cout << "Usage: " << argv[0] << " [options] <trace_file>\n"
+            cout << "Usage: " << argv[0] << " [options] <traceFile>\n"
                  << "Options:\n"
                  << "  -h, --help                Show this help message\n"
                  << "  --phys_mem_gb N           Physical memory size in GB "
                     "(default: 1)\n"
-                 << "  --batch_size N            Batch size for processing "
+                 << "  --batchSize N            Batch size for processing "
                     "(default: 4096)\n"
                  << "  --l1_tlb_size N           L1 TLB size (default: 64)\n"
                  << "  --l1_tlb_ways N           L1 TLB associativity "
@@ -193,31 +191,31 @@ SimConfig parse_args(int argc, char* argv[]) {
                     "(default: 8)\n"
                  << "  --l1_cache_size N         L1 Cache size in bytes "
                     "(default: 32768)\n"
-                 << "  --l1_ways N               L1 Cache associativity "
+                 << "  --l1Ways N               L1 Cache associativity "
                     "(default: 8)\n"
-                 << "  --l1_line N               L1 Cache line size (default: "
+                 << "  --l1Line N               L1 Cache line size (default: "
                     "64)\n"
                  << "  --l2_cache_size N         L2 Cache size in bytes "
                     "(default: 262144)\n"
-                 << "  --l2_ways N               L2 Cache associativity "
+                 << "  --l2Ways N               L2 Cache associativity "
                     "(default: 16)\n"
-                 << "  --l2_line N               L2 Cache line size (default: "
+                 << "  --l2Line N               L2 Cache line size (default: "
                     "64)\n"
                  << "  --l3_cache_size N         L3 Cache size in bytes "
                     "(default: 8388608)\n"
                  << "  --l3_ways N               L3 Cache associativity "
                     "(default: 16)\n"
-                 << "  --l3_line N               L3 Cache line size (default: "
+                 << "  --l3Line N               L3 Cache line size (default: "
                     "64)\n"
-                 << "  --pte_cachable BOOL       PTE cacheable flag (default: "
+                 << "  --pteCachable BOOL       PTE cacheable flag (default: "
                     "0)\n"
-                 << "  --pgd_size N              PGD size in entries "
+                 << "  --pgdSize N              PGD size in entries "
                     "(default: 512)\n"
-                 << "  --pud_size N              PUD size in entries "
+                 << "  --pudSize N              PUD size in entries "
                     "(default: 512)\n"
-                 << "  --pmd_size N              PMD size in entries "
+                 << "  --pmdSize N              PMD size in entries "
                     "(default: 512)\n"
-                 << "  --pte_size N              PTE size in entries "
+                 << "  --pteSize N              PTE size in entries "
                     "(default: 512)\n"
                  << "  --pgd_pwc_size N          PGD PWC size in entries "
                     "(default: 4)\n"
@@ -234,49 +232,49 @@ SimConfig parse_args(int argc, char* argv[]) {
                  << " ---toc_enabled BOOL          Enable TOC (default: 0)\n"
                  << "  --toc_size N               TOC size in bytes "
                     "(default: 0)\n"
-                 << "  <trace_file>              Path to the trace file\n"
+                 << "  <traceFile>              Path to the trace file\n"
                  << endl;
             exit(0);
         } else if (arg == "--phys_mem_gb" && i + 1 < argc) {
-            config.phys_mem_gb = std::stoull(argv[++i]);
-        } else if (arg == "--batch_size" && i + 1 < argc) {
-            config.batch_size = std::stoull(argv[++i]);
+            config.physMemGb = std::stoull(argv[++i]);
+        } else if (arg == "--batchSize" && i + 1 < argc) {
+            config.batchSize = std::stoull(argv[++i]);
         } else if (arg == "--l1_tlb_size" && i + 1 < argc) {
-            config.tlb.l1_size = std::stoull(argv[++i]);
+            config.tlb.l1Size = std::stoull(argv[++i]);
         } else if (arg == "--l1_tlb_ways" && i + 1 < argc) {
-            config.tlb.l1_ways = std::stoull(argv[++i]);
+            config.tlb.l1Ways = std::stoull(argv[++i]);
         } else if (arg == "--l2_tlb_size" && i + 1 < argc) {
-            config.tlb.l2_size = std::stoull(argv[++i]);
+            config.tlb.l2Size = std::stoull(argv[++i]);
         } else if (arg == "--l2_tlb_ways" && i + 1 < argc) {
-            config.tlb.l2_ways = std::stoull(argv[++i]);
+            config.tlb.l2Ways = std::stoull(argv[++i]);
         } else if (arg == "--l1_cache_size" && i + 1 < argc) {
-            config.cache.l1_size = std::stoull(argv[++i]);
-        } else if (arg == "--l1_ways" && i + 1 < argc) {
-            config.cache.l1_ways = std::stoull(argv[++i]);
-        } else if (arg == "--l1_line" && i + 1 < argc) {
-            config.cache.l1_line = std::stoull(argv[++i]);
+            config.cache.l1Size = std::stoull(argv[++i]);
+        } else if (arg == "--l1Ways" && i + 1 < argc) {
+            config.cache.l1Ways = std::stoull(argv[++i]);
+        } else if (arg == "--l1Line" && i + 1 < argc) {
+            config.cache.l1Line = std::stoull(argv[++i]);
         } else if (arg == "--l2_cache_size" && i + 1 < argc) {
-            config.cache.l2_size = std::stoull(argv[++i]);
-        } else if (arg == "--l2_ways" && i + 1 < argc) {
-            config.cache.l2_ways = std::stoull(argv[++i]);
-        } else if (arg == "--l2_line" && i + 1 < argc) {
-            config.cache.l2_line = std::stoull(argv[++i]);
+            config.cache.l2Size = std::stoull(argv[++i]);
+        } else if (arg == "--l2Ways" && i + 1 < argc) {
+            config.cache.l2Ways = std::stoull(argv[++i]);
+        } else if (arg == "--l2Line" && i + 1 < argc) {
+            config.cache.l2Line = std::stoull(argv[++i]);
         } else if (arg == "--l3_cache_size" && i + 1 < argc) {
-            config.cache.l3_size = std::stoull(argv[++i]);
+            config.cache.l3Size = std::stoull(argv[++i]);
         } else if (arg == "--l3_ways" && i + 1 < argc) {
-            config.cache.l3_ways = std::stoull(argv[++i]);
-        } else if (arg == "--l3_line" && i + 1 < argc) {
-            config.cache.l3_line = std::stoull(argv[++i]);
-        } else if (arg == "--pte_cachable" && i + 1 < argc) {
-            config.pgtbl.pte_cachable = (std::stoi(argv[++i]) != 0);
-        } else if (arg == "--pgd_size" && i + 1 < argc) {
-            config.pgtbl.pgd_size = std::stoull(argv[++i]);
-        } else if (arg == "--pud_size" && i + 1 < argc) {
-            config.pgtbl.pud_size = std::stoull(argv[++i]);
-        } else if (arg == "--pmd_size" && i + 1 < argc) {
-            config.pgtbl.pmd_size = std::stoull(argv[++i]);
-        } else if (arg == "--pte_size" && i + 1 < argc) {
-            config.pgtbl.pte_size = std::stoull(argv[++i]);
+            config.cache.l3Ways = std::stoull(argv[++i]);
+        } else if (arg == "--l3Line" && i + 1 < argc) {
+            config.cache.l3Line = std::stoull(argv[++i]);
+        } else if (arg == "--pteCachable" && i + 1 < argc) {
+            config.pgtbl.pteCachable = (std::stoi(argv[++i]) != 0);
+        } else if (arg == "--pgdSize" && i + 1 < argc) {
+            config.pgtbl.pgdSize = std::stoull(argv[++i]);
+        } else if (arg == "--pudSize" && i + 1 < argc) {
+            config.pgtbl.pudSize = std::stoull(argv[++i]);
+        } else if (arg == "--pmdSize" && i + 1 < argc) {
+            config.pgtbl.pmdSize = std::stoull(argv[++i]);
+        } else if (arg == "--pteSize" && i + 1 < argc) {
+            config.pgtbl.pteSize = std::stoull(argv[++i]);
         } else if (arg == "--pgd_pwc_size" && i + 1 < argc) {
             config.pwc.pgdSize = std::stoull(argv[++i]);
         } else if (arg == "--pgd_pwc_ways" && i + 1 < argc) {
@@ -290,19 +288,19 @@ SimConfig parse_args(int argc, char* argv[]) {
         } else if (arg == "--pmd_pwc_ways" && i + 1 < argc) {
             config.pwc.pmdWays = std::stoull(argv[++i]);
         } else if (arg == "--toc_enabled" && i + 1 < argc) {
-            config.pgtbl.TOCEnabled = (std::stoi(argv[++i]) != 0);
+            config.pgtbl.tocEnabled = (std::stoi(argv[++i]) != 0);
         } else if (arg == "--toc_size" && i + 1 < argc) {
-            config.pgtbl.TOCSize = std::stoull(argv[++i]);
-        } else if (config.trace_file.empty() && arg[0] != '-') {
+            config.pgtbl.tocSize = std::stoull(argv[++i]);
+        } else if (config.traceFile.empty() && arg[0] != '-') {
             // Assume this is the trace file
-            config.trace_file = arg;
+            config.traceFile = arg;
         } else {
             cerr << "Unknown option: " << arg << endl;
             exit(1);
         }
     }
 
-    if (config.trace_file.empty()) {
+    if (config.traceFile.empty()) {
         cerr << "Error: No trace file specified" << endl;
         exit(1);
     }
@@ -316,20 +314,20 @@ int main(int argc, char* argv[]) {
     cout << "=================================" << endl;
 
     // Parse command line arguments
-    SimConfig config = parse_args(argc, argv);
+    SimConfig config = ParseArgs(argc, argv);
 
     // Print configuration
-    config.print();
+    config.Print();
 
     // Create and run the offline analyzer
     OfflineAnalyzer analyzer(config);
-    if (!analyzer.run()) {
+    if (!analyzer.Run()) {
         cerr << "Error during analysis" << endl;
         return 1;
     }
 
     // Print final statistics
-    analyzer.print_stats();
+    analyzer.PrintStats();
 
     return 0;
 }

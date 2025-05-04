@@ -11,42 +11,42 @@
 
 class DataCache : public SetAssociativeCache<UINT64, UINT64> {
    private:
-    UINT32 lineSize;
-    UINT32 offsetBits;
-    UINT64 readAccesses;
-    UINT64 readHits;
-    UINT64 writeAccesses;
-    UINT64 writeHits;
-    UINT64 writebacks;
-    UINT64 coldMisses;
-    UINT64 capacityMisses;
-    UINT64 conflictMisses;
+    UINT64 lineSize_;
+    UINT64 offsetBits_;
+    UINT64 readAccesses_;
+    UINT64 readHits_;
+    UINT64 writeAccesses_;
+    UINT64 writeHits_;
+    UINT64 writebacks_;
+    UINT64 coldMisses_;
+    UINT64 capacityMisses_;
+    UINT64 conflictMisses_;
     DataCache*
-        nextLevel;  // pointer to next level cache (L2 or L3), or nullptr if last level
+        nextLevel_;  // pointer to next level cache (L2 or L3), or nullptr if last level
     UINT64*
-        memAccessCounter;  // pointer to memory access counter (for last level)
+        memAccessCounter_;  // pointer to memory access counter (for last level)
 
    protected:
-    UINT64 getSetIndex(const UINT64& tag) const override {
-        UINT64 index = tag & (numSets - 1);
+    UINT64 GetSetIndex(const UINT64& tag) const override {
+        UINT64 index = tag & (numSets_ - 1);
         return index;
     }
     // Override eviction handler to propagate write-back one level down
-    void handleEviction(const UINT64& tag, const UINT64& value,
+    void HandleEviction(const UINT64& tag, const UINT64& value,
                         bool dirty) override {
         if (dirty) {
-            writebacks++;  // count this write-back in this cache's stats
-            if (nextLevel) {
+            writebacks_++;  // count this write-back in this cache's stats
+            if (nextLevel_) {
                 // Write the evicted block to the next cache level (write-back)
-                UINT64 parse_value = value;
+                UINT64 parseValue = value;
                 UINT64 nextLevelTag =
-                    tag << offsetBits >> nextLevel->getOffsetBits();
-                // we don't want to lookup here, it doesn't matter and it is not in critical path
-                nextLevel->insert(tag, parse_value, /*isWrite*/ true);
+                    tag << offsetBits_ >> nextLevel_->GetOffsetBits();
+                // we don't want to Lookup here, it doesn't matter and it is not in critical path
+                nextLevel_->Insert(tag, parseValue, /*isWrite*/ true);
             } else {
                 // No next level (this is L3) – write back to main memory
-                if (memAccessCounter) {
-                    ++(*memAccessCounter);  // count a memory write access
+                if (memAccessCounter_) {
+                    ++(*memAccessCounter_);  // count a memory write access
                 }
             }
         }
@@ -55,88 +55,88 @@ class DataCache : public SetAssociativeCache<UINT64, UINT64> {
 
    public:
     DataCache(const std::string& name, UINT64 totalSize, UINT64 associativity,
-              UINT32 lineSize)
+              UINT64 lineSize)
         : SetAssociativeCache<UINT64, UINT64>(
               name, totalSize / (associativity * lineSize), associativity),
-          lineSize(lineSize) {
-        offsetBits = static_log2(lineSize);
-        readAccesses = readHits = 0;
-        writeAccesses = writeHits = 0;
-        writebacks = coldMisses = capacityMisses = conflictMisses = 0;
+          lineSize_(lineSize) {
+        offsetBits_ = StaticLog2(lineSize);
+        readAccesses_ = readHits_ = 0;
+        writeAccesses_ = writeHits_ = 0;
+        writebacks_ = coldMisses_ = capacityMisses_ = conflictMisses_ = 0;
     }
     // Set up links to next level and memory counter for write-back propagation
-    void setNextLevel(DataCache* nxt) { nextLevel = nxt; }
-    void setMemCounter(UINT64* memCountPt) { memAccessCounter = memCountPt; }
-    UINT32 getOffsetBits() const { return offsetBits; }
-    UINT64 getWritebacks() const { return writebacks; }
+    void SetNextLevel(DataCache* nxt) { nextLevel_ = nxt; }
+    void SetMemCounter(UINT64* memCountPt) { memAccessCounter_ = memCountPt; }
+    UINT64 GetOffsetBits() const { return offsetBits_; }
+    UINT64 GetWritebacks() const { return writebacks_; }
 
-    bool lookup(const uint64_t& tag, uint64_t& value, bool isWrite = false) {
-        bool hit = SetAssociativeCache::lookup(tag, value);
+    bool Lookup(const uint64_t& tag, uint64_t& value, bool isWrite = false) {
+        bool hit = SetAssociativeCache::Lookup(tag, value);
         if (isWrite) {
-            writeAccesses++;
+            writeAccesses_++;
             if (hit) {
-                writeHits++;
+                writeHits_++;
             }
         } else {
-            readAccesses++;
+            readAccesses_++;
             if (hit) {
-                readHits++;
+                readHits_++;
             }
         }
 
         if (!hit) {
-            if (globalLruCounter < numSets * numWays)
-                coldMisses++;
-            else if (findLruWay(getSetIndex(tag)))
-                capacityMisses++;
+            if (globalLruCounter_ < numSets_ * numWays_)
+                coldMisses_++;
+            else if (FindLruWay(GetSetIndex(tag)))
+                capacityMisses_++;
             else
-                conflictMisses++;
+                conflictMisses_++;
         }
         return hit;
     }
 
     // New statistics methods
-    uint64_t getAllMisses() const {
-        return coldMisses + capacityMisses + conflictMisses;
+    uint64_t GetAllMisses() const {
+        return coldMisses_ + capacityMisses_ + conflictMisses_;
     }
-    double getReadHitRate() const {
-        return readAccesses ? (double)readHits / readAccesses : 0;
+    double GetReadHitRate() const {
+        return readAccesses_ ? (double)readHits_ / readAccesses_ : 0;
     }
-    double getWriteHitRate() const {
-        return writeAccesses ? (double)writeHits / writeAccesses : 0;
+    double GetWriteHitRate() const {
+        return writeAccesses_ ? (double)writeHits_ / writeAccesses_ : 0;
     }
-    void printDetailedStats(std::ostream& os) const {
+    void PrintDetailedStats(std::ostream& os) const {
         os << "\nData Cache Detailed Statistics:\n";
         os << "==============================\n";
         os << std::left << std::setw(25) << "Total Accesses" << std::right
-           << std::setw(15) << getAccesses() << "\n";
+           << std::setw(15) << GetAccesses() << "\n";
         os << std::left << std::setw(25) << "Read Accesses" << std::right
-           << std::setw(15) << readAccesses << "\n";
+           << std::setw(15) << readAccesses_ << "\n";
         os << std::left << std::setw(25) << "Read Hit Rate" << std::setw(15)
-           << std::fixed << std::setprecision(2) << getReadHitRate() * 100
+           << std::fixed << std::setprecision(2) << GetReadHitRate() * 100
            << "%\n";
         os << std::left << std::setw(25) << "Write Accesses" << std::right
-           << std::setw(15) << writeAccesses << "\n";
+           << std::setw(15) << writeAccesses_ << "\n";
         os << std::left << std::setw(25) << "Write Hit Rate" << std::setw(15)
-           << std::fixed << std::setprecision(2) << getWriteHitRate() * 100
+           << std::fixed << std::setprecision(2) << GetWriteHitRate() * 100
            << "%\n";
         os << std::left << std::setw(25) << "Cold Misses" << std::right
-           << std::setw(15) << coldMisses << "\n";
+           << std::setw(15) << coldMisses_ << "\n";
         os << std::left << std::setw(25) << "Capacity Misses" << std::right
-           << std::setw(15) << capacityMisses << "\n";
+           << std::setw(15) << capacityMisses_ << "\n";
         os << std::left << std::setw(25) << "Conflict Misses" << std::right
-           << std::setw(15) << conflictMisses << "\n";
+           << std::setw(15) << conflictMisses_ << "\n";
         // In DataCache::printDetailedStats (adding writeback count):
         os << std::left << std::setw(25) << "Writebacks" << std::right
-           << std::setw(15) << writebacks << "\n";
+           << std::setw(15) << writebacks_ << "\n";
     }
 };
 
 class CacheHierarchy {
    private:
-    DataCache l1Cache;
-    DataCache l2Cache;
-    DataCache l3Cache;
+    DataCache l1Cache_;
+    DataCache l2Cache_;
+    DataCache l3Cache_;
 
    public:
     UINT64 memAccessCount;
@@ -145,116 +145,121 @@ class CacheHierarchy {
     CacheHierarchy(UINT64 l1Size, UINT64 l1Ways, UINT64 l1Line, UINT64 l2Size,
                    UINT64 l2Ways, UINT64 l2Line, UINT64 l3Size, UINT64 l3Ways,
                    UINT64 l3Line)
-        : l1Cache("L1 Cache", l1Size, l1Ways, l1Line),
-          l2Cache("L2 Cache", l2Size, l2Ways, l2Line),
-          l3Cache("L3 Cache", l3Size, l3Ways, l3Line),
+        : l1Cache_("L1 Cache", l1Size, l1Ways, l1Line),
+          l2Cache_("L2 Cache", l2Size, l2Ways, l2Line),
+          l3Cache_("L3 Cache", l3Size, l3Ways, l3Line),
           memAccessCount(0) {
         // Set up cache hierarchy
-        l1Cache.setNextLevel(&l2Cache);
-        l2Cache.setNextLevel(&l3Cache);
-        l3Cache.setNextLevel(nullptr);  // L3 has no next level
-        l1Cache.setMemCounter(&memAccessCount);
-        l2Cache.setMemCounter(&memAccessCount);
-        l3Cache.setMemCounter(&memAccessCount);  // L3 writes to memory
+        l1Cache_.SetNextLevel(&l2Cache_);
+        l2Cache_.SetNextLevel(&l3Cache_);
+        l3Cache_.SetNextLevel(nullptr);  // L3 has no next level
+        l1Cache_.SetMemCounter(&memAccessCount);
+        l2Cache_.SetMemCounter(&memAccessCount);
+        l3Cache_.SetMemCounter(&memAccessCount);  // L3 writes to memory
     }
 
     // translation access start from L2, do not access L1
-    bool translate_lookup(ADDRINT paddr, UINT64& value) {
-        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
+    bool TranslateLookup(ADDRINT paddr, UINT64& value,
+                         TranslationStats& translationStats) {
+        UINT64 l2CacheTag = paddr >> l2Cache_.GetOffsetBits();
         // L2 access
-        if (l2Cache.lookup(l2CacheTag, value)) {
+        translationStats.l2DataCacheAccess++;
+        if (l2Cache_.Lookup(l2CacheTag, value)) {
+            translationStats.l2DataCacheHits++;
             return true;
         }
-        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
+        UINT64 l3CacheTag = paddr >> l3Cache_.GetOffsetBits();
         // L3 access (on L1 & L2 miss)
-        if (l3Cache.lookup(l3CacheTag, value)) {
+        translationStats.l3DataCacheAccess++;
+        if (l3Cache_.Lookup(l3CacheTag, value)) {
             // On L3 hit, fill L2
-            l2Cache.insert(l2CacheTag, value, false);
+            translationStats.l3DataCacheHits++;
+            l2Cache_.Insert(l2CacheTag, value, false);
             return true;
         }
 
         // Miss in all caches: access main memory
         memAccessCount++;  // memory read for the new block
         // Fill all levels with the new block (inclusive cache policy)
-        l3Cache.insert(l3CacheTag, value, false);
-        l2Cache.insert(l2CacheTag, value, false);
+        l3Cache_.Insert(l3CacheTag, value, false);
+        l2Cache_.Insert(l2CacheTag, value, false);
         return false;
     }
 
-    bool access(ADDRINT paddr, UINT64& value, bool isWrite) {
-        UINT64 l1CacheTag = paddr >> l1Cache.getOffsetBits();
+    bool Access(ADDRINT paddr, UINT64& value, bool isWrite) {
+        UINT64 l1CacheTag = paddr >> l1Cache_.GetOffsetBits();
         // L1 access
-        if (l1Cache.lookup(l1CacheTag, value, isWrite)) {
+        if (l1Cache_.Lookup(l1CacheTag, value, isWrite)) {
             // Hit in L1. If isWrite, L1 line is now marked dirty (no write-through).
             if (isWrite)
-                l1Cache.insert(l1CacheTag, value,
-                               isWrite);  // update value (dirty flag set)
+                l1Cache_.Insert(l1CacheTag, value,
+                                isWrite);  // update value (dirty flag set)
             return true;
         }
 
-        UINT64 l2CacheTag = paddr >> l2Cache.getOffsetBits();
+        UINT64 l2CacheTag = paddr >> l2Cache_.GetOffsetBits();
         // L2 access (on L1 miss)
-        if (l2Cache.lookup(l2CacheTag, value, isWrite)) {
+        if (l2Cache_.Lookup(l2CacheTag, value, isWrite)) {
             // On L2 hit, fill L1 with the block
-            l1Cache.insert(l1CacheTag, value, isWrite);
+            l1Cache_.Insert(l1CacheTag, value, isWrite);
             // (If write, L1 will be dirty; no immediate write to L3)
             if (isWrite) {
-                l2Cache.insert(l1CacheTag, value,
-                               isWrite);  // update value (dirty flag set)
+                l2Cache_.Insert(l1CacheTag, value,
+                                isWrite);  // update value (dirty flag set)
             }
             return true;
         }
-        UINT64 l3CacheTag = paddr >> l3Cache.getOffsetBits();
+        UINT64 l3CacheTag = paddr >> l3Cache_.GetOffsetBits();
         // L3 access (on L1 & L2 miss)
-        if (l3Cache.lookup(l3CacheTag, value, isWrite)) {
+        if (l3Cache_.Lookup(l3CacheTag, value, isWrite)) {
             // On L3 hit, fill L2 and L1
             if (isWrite) {
-                l3Cache.insert(l1CacheTag, value,
-                               isWrite);  // update value (dirty flag set)
+                l3Cache_.Insert(l1CacheTag, value,
+                                isWrite);  // update value (dirty flag set)
             }
-            l2Cache.insert(l2CacheTag, value, false);
-            l1Cache.insert(l1CacheTag, value, isWrite);
+            l2Cache_.Insert(l2CacheTag, value, false);
+            l1Cache_.Insert(l1CacheTag, value, isWrite);
             // L1 marked dirty if write; L2 remains clean copy
             return true;
         }
 
         // Miss in all caches: access main memory
         memAccessCount++;  // memory read for the new block
-        assert(l3Cache.getAccesses() - l3Cache.getHits() +
-                   l3Cache.getWritebacks() ==
+        assert(l3Cache_.GetAccesses() - l3Cache_.GetHits() +
+                   l3Cache_.GetWritebacks() ==
                memAccessCount);
         // Fill all levels with the new block (inclusive cache policy)
-        l3Cache.insert(l3CacheTag, value, false);
-        l2Cache.insert(l2CacheTag, value, false);
-        l1Cache.insert(l1CacheTag, value, isWrite);
+        l3Cache_.Insert(l3CacheTag, value, false);
+        l2Cache_.Insert(l2CacheTag, value, false);
+        l1Cache_.Insert(l1CacheTag, value, isWrite);
         // If isWrite, L1 is dirty; L2 and L3 have clean copies.
         return false;
     }
 
-    void printStats(std::ostream& os) const {
+    void PrintStats(std::ostream& os) const {
         os << "\n=== Cache Hierarchy Statistics ===\n";
-        printCacheStats(os, l1Cache);
-        printCacheStats(os, l2Cache);
-        printCacheStats(os, l3Cache);
+        PrintCacheStats(os, l1Cache_);
+        PrintCacheStats(os, l2Cache_);
+        PrintCacheStats(os, l3Cache_);
         os << "Memory Accesses: " << memAccessCount << "\n";
         os << "Total Access Cost (cycles): "
-           << l1Cache.getAccesses() * 1 +       // L1 access cycles
-                  l2Cache.getAccesses() * 4 +   // L2 access cycles
-                  l3Cache.getAccesses() * 10 +  // L3 access cycles
-                  memAccessCount * 100          // Memory access cycles
+           << l1Cache_.GetAccesses() * 1 +       // L1 access cycles
+                  l2Cache_.GetAccesses() * 4 +   // L2 access cycles
+                  l3Cache_.GetAccesses() * 10 +  // L3 access cycles
+                  memAccessCount * 100           // Memory access cycles
            << "\n";
     }
 
    private:
-    void printCacheStats(std::ostream& os, const DataCache& cache) const {
-        os << "[" << cache.getName() << "]\n"
-           << "Size: " << cache.getSize() / 1024 << "KB\n"
-           << "Ways: " << cache.getNumWays() << "\n"
+    void PrintCacheStats(std::ostream& os, const DataCache& cache) const {
+        os << "[" << cache.GetName() << "]\n"
+           << "Size: " << cache.GetSize() / 1024 << "KB\n"
+           << "Ways: " << cache.GetNumWays() << "\n"
            << "Hit Rate: " << std::fixed << std::setprecision(2)
-           << cache.getHitRate() * 100 << "%\n"
-           << "Accesses: " << cache.getAccesses() << "\n"
-           << "Misses: " << cache.getAccesses() - cache.getHits() << "\n";
-        cache.printDetailedStats(os);
+           << cache.GetHitRate() * 100 << "%\n"
+           << "Accesses: " << cache.GetAccesses() << "\n"
+           << "Misses: " << cache.GetAccesses() - cache.GetHits() << "\n";
+        cache.PrintDetailedStats(os);
         os << "---------------------------------\n";
         os << std::endl;
     }
