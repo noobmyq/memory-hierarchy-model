@@ -84,7 +84,7 @@ class Simulator {
 BUFFER_ID bufId;
 
 // --- Knobs for Simulator Configuration ---
-KNOB<UINT64> KnobPhysMemGB(KNOB_MODE_WRITEONCE, "pintool", "physMemGb", "1",
+KNOB<UINT64> KnobPhysMemGB(KNOB_MODE_WRITEONCE, "pintool", "phys_mem_gb", "1",
                            "Physical memory size in GB");
 KNOB<UINT64> KnobL1TLBSize(KNOB_MODE_WRITEONCE, "pintool", "l1_tlb_size", "64",
                            "L1 TLB size");
@@ -108,13 +108,13 @@ KNOB<UINT64> KnobPMDPWCWays(KNOB_MODE_WRITEONCE, "pintool", "pmd_pwc_ways", "4",
                             "PWC associativity");
 KNOB<UINT64> KnobL1CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l1_cache_size",
                              "32768", "L1 Cache size in bytes");
-KNOB<UINT64> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1Ways", "8",
+KNOB<UINT64> KnobL1Ways(KNOB_MODE_WRITEONCE, "pintool", "l1_ways", "8",
                         "L1 Cache associativity");
-KNOB<UINT64> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1Line", "64",
+KNOB<UINT64> KnobL1Line(KNOB_MODE_WRITEONCE, "pintool", "l1_line", "64",
                         "L1 Cache line size");
 KNOB<UINT64> KnobL2CacheSize(KNOB_MODE_WRITEONCE, "pintool", "l2_cache_size",
                              "262144", "L2 Cache size in bytes");
-KNOB<UINT64> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2Ways", "16",
+KNOB<UINT64> KnobL2Ways(KNOB_MODE_WRITEONCE, "pintool", "l2_ways", "16",
                         "L2 Cache associativity");
 KNOB<UINT64> KnobL2Line(KNOB_MODE_WRITEONCE, "pintool", "l2_line", "64",
                         "L2 Cache line size");

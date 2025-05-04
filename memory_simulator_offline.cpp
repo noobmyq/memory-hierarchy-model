@@ -237,7 +237,7 @@ SimConfig ParseArgs(int argc, char* argv[]) {
             exit(0);
         } else if (arg == "--phys_mem_gb" && i + 1 < argc) {
             config.physMemGb = std::stoull(argv[++i]);
-        } else if (arg == "--batchSize" && i + 1 < argc) {
+        } else if (arg == "--batch_size" && i + 1 < argc) {
             config.batchSize = std::stoull(argv[++i]);
         } else if (arg == "--l1_tlb_size" && i + 1 < argc) {
             config.tlb.l1Size = std::stoull(argv[++i]);
@@ -249,31 +249,31 @@ SimConfig ParseArgs(int argc, char* argv[]) {
             config.tlb.l2Ways = std::stoull(argv[++i]);
         } else if (arg == "--l1_cache_size" && i + 1 < argc) {
             config.cache.l1Size = std::stoull(argv[++i]);
-        } else if (arg == "--l1Ways" && i + 1 < argc) {
+        } else if (arg == "--l1_ways" && i + 1 < argc) {
             config.cache.l1Ways = std::stoull(argv[++i]);
-        } else if (arg == "--l1Line" && i + 1 < argc) {
+        } else if (arg == "--l1_line" && i + 1 < argc) {
             config.cache.l1Line = std::stoull(argv[++i]);
         } else if (arg == "--l2_cache_size" && i + 1 < argc) {
             config.cache.l2Size = std::stoull(argv[++i]);
-        } else if (arg == "--l2Ways" && i + 1 < argc) {
+        } else if (arg == "--l2_ways" && i + 1 < argc) {
             config.cache.l2Ways = std::stoull(argv[++i]);
-        } else if (arg == "--l2Line" && i + 1 < argc) {
+        } else if (arg == "--l2_line" && i + 1 < argc) {
             config.cache.l2Line = std::stoull(argv[++i]);
         } else if (arg == "--l3_cache_size" && i + 1 < argc) {
             config.cache.l3Size = std::stoull(argv[++i]);
         } else if (arg == "--l3_ways" && i + 1 < argc) {
             config.cache.l3Ways = std::stoull(argv[++i]);
-        } else if (arg == "--l3Line" && i + 1 < argc) {
+        } else if (arg == "--l3_line" && i + 1 < argc) {
             config.cache.l3Line = std::stoull(argv[++i]);
-        } else if (arg == "--pteCachable" && i + 1 < argc) {
+        } else if (arg == "--pte_cachable" && i + 1 < argc) {
             config.pgtbl.pteCachable = (std::stoi(argv[++i]) != 0);
-        } else if (arg == "--pgdSize" && i + 1 < argc) {
+        } else if (arg == "--pgd_size" && i + 1 < argc) {
             config.pgtbl.pgdSize = std::stoull(argv[++i]);
-        } else if (arg == "--pudSize" && i + 1 < argc) {
+        } else if (arg == "--pud_size" && i + 1 < argc) {
             config.pgtbl.pudSize = std::stoull(argv[++i]);
-        } else if (arg == "--pmdSize" && i + 1 < argc) {
+        } else if (arg == "--pmd_size" && i + 1 < argc) {
             config.pgtbl.pmdSize = std::stoull(argv[++i]);
-        } else if (arg == "--pteSize" && i + 1 < argc) {
+        } else if (arg == "--pte_size" && i + 1 < argc) {
             config.pgtbl.pteSize = std::stoull(argv[++i]);
         } else if (arg == "--pgd_pwc_size" && i + 1 < argc) {
             config.pwc.pgdSize = std::stoull(argv[++i]);
