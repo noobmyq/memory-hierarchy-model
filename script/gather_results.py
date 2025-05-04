@@ -13,6 +13,8 @@ import glob
 import pandas as pd
 from pathlib import Path
 
+
+
 def parse_output_file(file_path):
     """
     Parse a memory simulator output file and extract relevant metrics.
@@ -216,28 +218,77 @@ def parse_output_file(file_path):
     if match:
         metrics['total_access_cost_cycles'] = match.group(1)
     
-    # Calculate average memory requests per translation based on path statistics
-    # Each path has a different memory request count:
-    # - L1 TLB Hit: 0 memory requests
-    # - L2 TLB Hit: 0 memory requests
-    # - PMD PWC Hit: 1 memory request (miss L1 & L2 TLB, access PMD)
-    # - PUD PWC Hit: 2 memory requests (miss L1 & L2 TLB, miss PMD, access PUD)
-    # - PGD PWC Hit: 3 memory requests (miss L1 & L2 TLB, miss PMD, miss PUD, access PGD)
-    # - Full Page Walk: 4 memory requests (miss all caches, do full memory walk)
-    
+    # the stats looks like this:
+    '''
+    Page Table Statistics by Level:
+    ==============================
+    Level                                Accesses         Tables        Entries     Avg Fill %
+    ------------------------------------------------------------------------------------------
+    PGD (Page Global Directory)                 1              1              2          25.00
+    PUD (Page Upper Directory)                  3              2              3           0.07
+    PMD (Page Middle Directory)             16763              3            739          12.03
+    PTE (Page Table Entry)               30805306            739        1500816          99.16
+    '''
+    match = re.search(r'PGD\s+\(Page Global Directory\)\s+(\d+)', content)
+    if match:
+        metrics['pgd_access_count'] = int(match.group(1))
+
+    match = re.search(r'PUD\s+\(Page Upper Directory\)\s+(\d+)', content)
+    if match:
+        metrics['pud_access_count'] = int(match.group(1))
+    match = re.search(r'PMD\s+\(Page Middle Directory\)\s+(\d+)', content)
+    if match:
+        metrics['pmd_access_count'] = int(match.group(1))
+    match = re.search(r'PTE\s+\(Page Table Entry\)\s+(\d+)', content)
+    if match:
+        metrics['pte_access_count'] = int(match.group(1))
+
+    # Extract data cache statistics during translation, last 4 lines are what we want
+    '''
+    Data Cache Stats during Translation:                                                      
+    ===========================                                                               
+    PTE Data Cache Hits                  83044538           2.47%                             
+    PTE Data Cache Misses                 1395488           0.04%                             
+    L2 Data Cache Access                 84440026           2.51%                             
+    L2 Data Cache Hits                   53166402           1.58%                             
+    L3 Data Cache Access                 31273624           0.93%                             
+    L3 Data Cache Hits                   29878136           0.89%                             
+    ------------------------------------------------------------   
+    '''
+    match = re.search(r'L2 Data Cache Access\s+(\d+)', content)
+    if match:
+        metrics['translate_l2_cache_access'] = int(match.group(1))
+
+    match = re.search(r'L2 Data Cache Hits\s+(\d+)', content)
+    if match:
+        metrics['translate_l2_cache_hit'] = int(match.group(1))
+
+    match = re.search(r'L3 Data Cache Access\s+(\d+)', content)
+    if match:
+        metrics['translate_l3_cache_access'] = int(match.group(1))
+
+    match = re.search(r'L3 Data Cache Hits\s+(\d+)', content)
+    if match:
+        metrics['translate_l3_cache_hit'] = int(match.group(1))
+
+    # Calculate average memory requests per translation based on path statistics    
     if 'total_translations' in metrics and metrics['total_translations'] > 0:
         # Multiply each path count by its memory request count
-        l1_tlb_memory_requests = 0 * metrics['l1_tlb_hit_count']
-        l2_tlb_memory_requests = 0 * metrics['l2_tlb_hit_count']
-        pmd_pwc_memory_requests = 1 * metrics['pmd_pwc_hit_count']
-        pud_pwc_memory_requests = 2 * metrics['pud_pwc_hit_count']
-        pgd_pwc_memory_requests = 3 * metrics['pgd_pwc_hit_count']
-        full_walk_memory_requests = 4 * metrics['full_page_walk_count']
-        
+        # pmd_pwc_memory_requests = 1 * metrics['pmd_pwc_hit_count']
+        # pud_pwc_memory_requests = 2 * metrics['pud_pwc_hit_count']
+        # pgd_pwc_memory_requests = 3 * metrics['pgd_pwc_hit_count']
+        # full_walk_memory_requests = 4 * metrics['full_page_walk_count']
+        pgd_access_count = metrics.get('pgd_access_count', 0)
+        pud_access_count = metrics.get('pud_access_count', 0)
+        pmd_access_count = metrics.get('pmd_access_count', 0)
+        pte_access_count = metrics.get('pte_access_count', 0)
+
+
         # Sum up all memory requests
-        total_memory_requests = (l1_tlb_memory_requests + l2_tlb_memory_requests + 
-                                pmd_pwc_memory_requests + pud_pwc_memory_requests + 
-                                pgd_pwc_memory_requests + full_walk_memory_requests)
+        total_memory_requests = (pgd_access_count + 
+                                 pud_access_count +
+                                 pmd_access_count +
+                                 pte_access_count)
         
         # Calculate average
         avg_memory_requests = total_memory_requests / metrics['total_translations']
@@ -247,6 +298,80 @@ def parse_output_file(file_path):
     if 'pmd_pwc_accesses' in metrics and metrics['pmd_pwc_accesses'] > 0:
         avg_memory_requests_per_walk = total_memory_requests / metrics['pmd_pwc_accesses']
         metrics['avg_memory_requests_per_walk'] = round(avg_memory_requests_per_walk, 6)
+
+    # Calculate average cycles per walk, make sure we have all the following stats:
+    # l1_tlb_access, l2_tlb_access, pgd_pwc_access, pud_pwc_access, pmd_pwc_access
+    # translate_l2_cache_access, translate_l3_cache_access, page_walk_memory_accesses
+    # latency for each level is defined below
+    l1_tlb_latency = 1
+    l2_tlb_latency = 10
+    pgd_pwc_latency = 1
+    pud_pwc_latency = 1
+    pmd_pwc_latency = 1
+    l2_cache_latency = 16
+    l3_cache_latency = 40
+    memory_latency = 200
+    # Calculate average cycles per walk
+    if ('l1_tlb_accesses' in metrics and metrics['l1_tlb_accesses'] > 0 and
+        'l2_tlb_accesses' in metrics and metrics['l2_tlb_accesses'] > 0 and
+        'pgd_pwc_accesses' in metrics and metrics['pgd_pwc_accesses'] > 0 and
+        'pud_pwc_accesses' in metrics and metrics['pud_pwc_accesses'] > 0 and
+        'pmd_pwc_accesses' in metrics and metrics['pmd_pwc_accesses'] > 0 
+        and 'translate_l2_cache_access' in metrics and
+        'translate_l3_cache_access' in metrics
+        ):
+        
+        avg_cycles_per_walk = (pgd_pwc_latency * metrics['pgd_pwc_accesses'] +
+                               pud_pwc_latency * metrics['pud_pwc_accesses'] +
+                               pmd_pwc_latency * metrics['pmd_pwc_accesses'] +
+                               l2_cache_latency * metrics['translate_l2_cache_access'] +
+                               l3_cache_latency * metrics['translate_l3_cache_access'] +
+                                 memory_latency * metrics['page_walk_memory_accesses'])
+
+        avg_cycles_per_translation = (l1_tlb_latency * metrics['l1_tlb_accesses'] +
+                                        l2_tlb_latency * metrics['l2_tlb_accesses'] +
+                                        pgd_pwc_latency * metrics['pgd_pwc_accesses'] +
+                                        pud_pwc_latency * metrics['pud_pwc_accesses'] +
+                                        pmd_pwc_latency * metrics['pmd_pwc_accesses'] +
+                                        l2_cache_latency * metrics['translate_l2_cache_access'] +
+                                        l3_cache_latency * metrics['translate_l3_cache_access'] +
+                                        memory_latency * metrics['page_walk_memory_accesses'])
+
+        # Divide by the number of page walk accesses to get average cycles per walk
+        avg_cycles_per_walk /= (metrics['pmd_pwc_accesses'])
+        # Divide by the number of translations to get average cycles per translation
+        avg_cycles_per_translation /= (metrics['total_translations'])
+        metrics['avg_cycle_per_walk'] = round(avg_cycles_per_walk, 6)
+        metrics['avg_cycle_per_translation'] = round(avg_cycles_per_translation, 6)
+
+    # data cache stats looks like this:
+    '''
+    [L1 Cache]
+    Size: 0KB
+    Ways: 8
+    Hit Rate: 89.49%
+    Accesses: 29472024427
+    Misses: 3097964388
+    '''
+    match = re.search(r'\[L1 Cache\]\s+Size:\s+(\d+)KB\s+Ways:\s+(\d+)\s+Hit Rate:\s+([\d\.]+)%\s+Accesses:\s+(\d+)\s+Misses:\s+(\d+)', content)
+    if match:
+        metrics['L1_cache_hit_rate'] = match.group(3)
+        metrics['L1_cache_misses'] = match.group(5)
+        metrics['L1_cache_accesses'] = match.group(4)
+    
+    # L2 Cache
+    match = re.search(r'\[L2 Cache\]\s+Size:\s+(\d+)KB\s+Ways:\s+(\d+)\s+Hit Rate:\s+([\d\.]+)%\s+Accesses:\s+(\d+)\s+Misses:\s+(\d+)', content)
+    if match:
+        metrics['L2_cache_hit_rate'] = match.group(3)
+        metrics['L2_cache_misses'] = match.group(5)
+        metrics['L2_cache_accesses'] = match.group(4)
+
+    # L3 Cache
+    match = re.search(r'\[L3 Cache\]\s+Size:\s+(\d+)KB\s+Ways:\s+(\d+)\s+Hit Rate:\s+([\d\.]+)%\s+Accesses:\s+(\d+)\s+Misses:\s+(\d+)', content)
+    if match:
+        metrics['L3_cache_hit_rate'] = match.group(3)
+        metrics['L3_cache_misses'] = match.group(5)
+        metrics['L3_cache_accesses'] = match.group(4)
 
     # Convert numeric metrics back to strings for consistency
     for key in metrics:
@@ -423,11 +548,20 @@ def define_column_order():
         'avg_memory_requests_per_translation',
         
         # Page table statistics
-        'total_page_tables', 'page_table_memory_mb',
+        'total_page_tables', 'page_table_memory_mb', 
+        'pgd_access_count', 'pud_access_count', 'pmd_access_count',
+        'pte_access_count', 'translate_l2_cache_access', 'translate_l2_cache_hit',
+        'translate_l3_cache_access', 'translate_l3_cache_hit',
+        'avg_cycle_per_walk', 'avg_cycle_per_translation'
         
         # Cache statistics
         'pte_cache_hits', 'pte_cache_misses',
         'page_walk_memory_accesses', 'pte_cache_hit_ratio',
+
+        # Data Cache statistics
+        'L1_cache_hit_rate', 'L1_cache_misses',
+        'L2_cache_hit_rate', 'L2_cache_misses',
+        'L3_cache_hit_rate', 'L3_cache_misses',
         
         # Memory statistics
         'memory_accesses', 'total_access_cost_cycles',

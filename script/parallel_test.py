@@ -49,11 +49,21 @@ DEFAULT_PWC_CONFIGS = [
     # (16,4,16,4,128,16),
 ]
 
+SPECIAL_WORKLOAD_LIST = [
+    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
+    {'name': 'BTree', 'options': ['3000000', '100000']}, #~300MB
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.5GB
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.4GB
+    
+]
+
 # Define workload lists
 HUGE_WORKLOAD_LIST = [
     {'name': 'gups-static', 'options': ['20']}, # ~16GB
     {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
     {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
+    {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
 
 ]
 
@@ -226,6 +236,7 @@ def run_one_experiment(config_data):
             f.write(f"Experiment: {exp_name}\n")
             f.write(f"Workload: {workload['name']}\n")
             f.write(f"Options: {' '.join(workload.get('options', []))}\n\n")
+            f.write(f"run command: {run_cmd}\n")
             
             f.write(f"Page Table Configuration:\n")
             f.write(f"  PGD Size: {pgd_size_pt} entries\n")
@@ -277,7 +288,7 @@ def run_one_experiment(config_data):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run memory simulator with different configurations in parallel')
-    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny', 'middle', 'huge'], required=True, 
+    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny', 'middle', 'huge', 'special'], required=True, 
                         help='Workload type: large or tiny')
     parser.add_argument('-n', '--workload_num', type=int, 
                         help='Workload number (optional, if not provided, all workloads will be run)')
@@ -370,8 +381,10 @@ def main():
         workload_list = MIDDLE_WORKLOAD_LIST
     elif args.workload_type == 'tiny':
         workload_list = TINY_WORKLOAD_LIST
+    elif args.workload_type == 'special':
+        workload_list = SPECIAL_WORKLOAD_LIST
     else:
-        parser.error("Invalid workload type. Choose 'large', 'middle', or 'tiny'.")
+        parser.error("Invalid workload type. Choose 'large', 'middle', 'tiny', 'huge', or 'special'")
         exit(1)
     
     # assert all workloads exist
@@ -404,7 +417,7 @@ def main():
     
     # Calculate parallelism level
     total_configs = len(page_table_configs) * len(pwc_configs) * len(toc_configs) * len(workload_list)
-    num_workers = min(total_configs * args.parallel_factor, len(configs), 8 if args.workload_type == 'huge' else 16)
+    num_workers = min(total_configs * args.parallel_factor, len(configs), 8 if args.workload_type == 'huge' or args.workload_type == 'special' else 20)
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
     # Start timing

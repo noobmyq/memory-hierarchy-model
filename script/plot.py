@@ -112,44 +112,101 @@ def get_unique_values(df, columns):
             unique_values[column] = values
     return unique_values
 
-def filter_data(df, filters):
+def filter_data(df, selected_config_ids):
     """
-    Filter DataFrame based on specified filters
+    Filter DataFrame based on selected configuration IDs
     
     Args:
         df: pandas DataFrame
-        filters: Dictionary mapping column names to lists of allowed values
+        selected_config_ids: List of selected configuration identifiers
         
     Returns:
-        A filtered pandas DataFrame
+        A filtered pandas DataFrame containing only the selected configurations
     """
-    filtered_df = df.copy()
-    for column, values in filters.items():
-        if column in filtered_df.columns and values:
-            # Convert values to the same type as in the dataframe to avoid comparison issues
-            if column == 'toc_enabled':
-                # Special handling for toc_enabled which could be boolean or string
-                if filtered_df[column].dtype == bool:
-                    # Convert string values like 'true'/'false' to boolean
-                    bool_values = []
-                    for val in values:
-                        if isinstance(val, bool):
-                            bool_values.append(val)
-                        elif isinstance(val, str) and val.lower() == 'true':
-                            bool_values.append(True)
-                        elif isinstance(val, str) and val.lower() == 'false':
-                            bool_values.append(False)
-                    filtered_df = filtered_df[filtered_df[column].isin(bool_values)]
-                else:
-                    # Handle as strings
-                    filtered_df = filtered_df[filtered_df[column].isin(values)]
-            else:
-                filtered_df = filtered_df[filtered_df[column].isin(values)]
+    if not selected_config_ids:
+        return df.copy()
+    
+    # Create a complete configuration ID for each row
+    pagetable_cols = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size']
+    pwc_cols = ['pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries']
+    toc_cols = ['toc_enabled', 'toc_size']
+    all_config_cols = pagetable_cols + pwc_cols + toc_cols
+    
+    # Only use columns that exist in the dataframe
+    config_cols = [col for col in all_config_cols if col in df.columns]
+    
+    # Create a temporary DataFrame with configuration IDs
+    result_df = df.copy()
+    
+    # We need to create the same config_id as was used in the selection process
+    # This will create consistent identifiers for matching
+    result_df['_config_id'] = result_df.apply(
+        lambda row: generate_config_id(row, config_cols), 
+        axis=1
+    )
+    
+    # Filter to include only selected configuration IDs
+    filtered_df = result_df[result_df['_config_id'].isin(selected_config_ids)]
+    
+    # Remove temporary config_id column
+    if '_config_id' in filtered_df.columns:
+        filtered_df = filtered_df.drop('_config_id', axis=1)
+    
     return filtered_df
+
+def generate_config_id(row, config_cols):
+    """
+    Generate a unique identifier for a complete configuration
+    
+    Args:
+        row: pandas Series (a row from the DataFrame)
+        config_cols: List of configuration columns
+        
+    Returns:
+        A string identifier for the configuration
+    """
+    # Define configuration groups
+    pagetable_cols = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size']
+    pwc_cols = ['pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries']
+    toc_cols = ['toc_enabled', 'toc_size']
+    
+    # Filter to only columns that exist in the row
+    pagetable_cols = [col for col in pagetable_cols if col in config_cols]
+    pwc_cols = [col for col in pwc_cols if col in config_cols]
+    toc_cols = [col for col in toc_cols if col in config_cols]
+    
+    # Create parts for each configuration group
+    pagetable_part = "|".join([f"{col}={row[col]}" for col in pagetable_cols if col in row])
+    pwc_part = "|".join([f"{col}={row[col]}" for col in pwc_cols if col in row])
+    
+    # Handle TOC specially
+    toc_part = ""
+    if 'toc_enabled' in toc_cols and 'toc_enabled' in row:
+        toc_enabled = row['toc_enabled']
+        if isinstance(toc_enabled, str):
+            toc_enabled = toc_enabled.lower() == 'true'
+        toc_part += f"toc_enabled={toc_enabled}"
+    
+    if 'toc_size' in toc_cols and 'toc_size' in row:
+        if toc_part:
+            toc_part += "|"
+        toc_part += f"toc_size={row['toc_size']}"
+    
+    # Combine all parts into a single identifier
+    config_parts = []
+    if pagetable_part:
+        config_parts.append(f"PT[{pagetable_part}]")
+    if pwc_part:
+        config_parts.append(f"PWC[{pwc_part}]")
+    if toc_part:
+        config_parts.append(f"TOC[{toc_part}]")
+    
+    return "::".join(config_parts)
 
 def get_config_label(row, config_columns):
     """
-    Create a label for a configuration based on column values
+    Create a label for a configuration based on column values,
+    grouping them by configuration type for better readability
     
     Args:
         row: pandas Series (a row from the DataFrame)
@@ -158,25 +215,75 @@ def get_config_label(row, config_columns):
     Returns:
         A string label for the configuration
     """
-    parts = []
+    # Define configuration groups
+    pagetable_cols = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size']
+    pwc_cols = ['pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries']
+    toc_cols = ['toc_enabled', 'toc_size']
+    
+    # Initialize part collectors for each group
+    pagetable_parts = []
+    pwc_parts = []
+    toc_parts = []
+    other_parts = []
+    
+    # Process each column based on its group
     for col in config_columns:
         if col in row and not pd.isna(row[col]):
-            # For TOC enabled, use a simpler format
-            if col == 'toc_enabled':
-                # Handle both boolean and string types
-                if isinstance(row[col], bool):
-                    parts.append('TOC' if row[col] else 'noTOC')
+            # Page table configuration
+            if col in pagetable_cols:
+                col_label = col.replace('_size', '')
+                pagetable_parts.append(f"{col_label}={row[col]}")
+            
+            # PWC configuration
+            elif col in pwc_cols:
+                col_label = col.replace('_pwc_entries', '')
+                pwc_parts.append(f"{col_label}_pwc={row[col]}")
+            
+            # TOC configuration
+            elif col in toc_cols:
+                if col == 'toc_enabled':
+                    # Handle toc_enabled specially
+                    is_enabled = False
+                    if isinstance(row[col], bool):
+                        is_enabled = row[col]
+                    else:
+                        is_enabled = str(row[col]).lower() == 'true'
+                    
+                    toc_parts.append('TOC' if is_enabled else 'noTOC')
                 else:
-                    parts.append('TOC' if str(row[col]).lower() == 'true' else 'noTOC')
+                    if any(part.startswith('TOC') for part in toc_parts):
+                        # Only include toc_size if TOC is enabled
+                        toc_parts.append(f"TOC{col.replace('toc_', '')}={row[col]}")
+            
+            # Other configuration parameters
             else:
-                # Simplify the labels by removing common prefixes and suffixes
-                col_label = col.replace('_entries', '').replace('_size', '').replace('_pwc', '')
-                parts.append(f"{col_label}={row[col]}")
-    return ", ".join(parts)
+                other_parts.append(f"{col}={row[col]}")
+    
+    # Combine parts from each group
+    parts = []
+    
+    # Add page table configuration if present
+    if pagetable_parts:
+        parts.append("PT[" + ", ".join(pagetable_parts) + "]")
+    
+    # Add PWC configuration if present
+    if pwc_parts:
+        parts.append("PWC[" + ", ".join(pwc_parts) + "]")
+    
+    # Add TOC configuration if present
+    if toc_parts:
+        parts.append(", ".join(toc_parts))
+    
+    # Add other configuration parameters
+    if other_parts:
+        parts.append(", ".join(other_parts))
+    
+    return " | ".join(parts)
 
 def sort_configs(df, config_columns):
     """
     Sort configurations based on specified keys.
+    Now considers configuration groups for more logical sorting.
     
     Args:
         df: pandas DataFrame
@@ -185,10 +292,21 @@ def sort_configs(df, config_columns):
     Returns:
         A sorted pandas DataFrame
     """
-    sort_keys = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size', 
-                 'pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries', 'toc_enabled', 'toc_size']
+    # Define sort priority groups
+    pagetable_sort_keys = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size']
+    pwc_sort_keys = ['pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries']
+    toc_sort_keys = ['toc_enabled', 'toc_size']
+    
+    # Combine sort keys in priority order
+    sort_keys = pagetable_sort_keys + pwc_sort_keys + toc_sort_keys
+    
     # Ensure sort_keys are in the DataFrame
     sort_keys = [key for key in sort_keys if key in df.columns]
+    
+    # If no valid sort keys, return the original DataFrame
+    if not sort_keys:
+        return df
+    
     return df.sort_values(by=sort_keys)
 
 def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_file=None, 
@@ -296,7 +414,10 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
             elif abs(value) < 100:
                 value_text = f"{value:.1f}"
             else:
-                value_text = f"{int(value)}"
+                if not isinstance(value, (int, float)) or not value.is_integer():
+                    value_text = f"{value:.1f}"
+                else:
+                    value_text = f"{int(value)}"
                 
             # Position the text above the bar
             height = bar.get_height()
@@ -316,9 +437,12 @@ def create_bar_plot(df, x_column, y_column, config_columns, title=None, output_f
     
     # Set y-axis limits for percentage metrics
     if any(term in y_column.lower() for term in ['percentage', 'efficiency', 'hit_rate', 'ratio']):
-        ax.set_ylim(0, max(120, max(values) * 1.2))  # Increase upper limit to make room for labels
+        ax.set_ylim(0, max(120, max(values if values else [0]) * 1.2))  # Increase upper limit to make room for labels
     else:
-        ax.set_ylim(0, max(values) * 1.2)  # Increase upper limit to make room for labels
+        if values:
+            ax.set_ylim(0, max(values) * 1.2)  # Increase upper limit to make room for labels
+        else:
+            ax.set_ylim(0, 100)  # Default if no values
     
     # Set x-tick labels
     ax.set_xticks(indices)
@@ -464,7 +588,7 @@ def create_grouped_bar_plot(df, x_column, y_column, group_column, config_columns
                     
                 # Position the text above the bar
                 height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + 0.01 * max(values),
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.01 * max(values if values else [0]),
                         value_text, ha='center', va='bottom', rotation=45, fontsize=8)
     
     # Add labels and title
@@ -479,8 +603,11 @@ def create_grouped_bar_plot(df, x_column, y_column, group_column, config_columns
     if any(term in y_column.lower() for term in ['percentage', 'efficiency', 'hit_rate', 'ratio']):
         ax.set_ylim(0, 110)  # Set to slightly above 100% to make room for labels
     else:
-        max_value = max([val for vals in [values for i, val in grouped[y_column].items()] for val in vals], default=0)
-        ax.set_ylim(0, max_value * 1.2)  # Increase upper limit to make room for labels
+        max_values = [val for vals in [list(group_data[y_column]) for _, group_data in grouped.groupby([group_column, 'config_id'])] for val in vals]
+        if max_values:
+            ax.set_ylim(0, max(max_values) * 1.2)  # Increase upper limit to make room for labels
+        else:
+            ax.set_ylim(0, 100)  # Default if no values
     
     # Set x-tick labels
     ax.set_xticks(indices)
@@ -782,19 +909,47 @@ def interactive_mode(timestamp_files, experiment_names):
     if 'toc_size' in df.columns:
         df['toc_size'] = df['toc_size'].fillna(0)
     
-    # Get available columns and their unique values
-    config_columns = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size', 
-                     'pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries', 
-                     'toc_enabled', 'toc_size']
+    # Define configuration column groups
+    pagetable_cols = ['pgd_size', 'pud_size', 'pmd_size', 'pte_size']
+    pwc_cols = ['pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries']
+    toc_cols = ['toc_enabled', 'toc_size']
+    all_config_cols = pagetable_cols + pwc_cols + toc_cols
     
+    # Get actual columns that exist in the dataframe
+    config_cols = [col for col in all_config_cols if col in df.columns]
+    
+    # Create configuration IDs for all rows
+    df['_config_id'] = df.apply(lambda row: generate_config_id(row, config_cols), axis=1)
+    
+    # Get unique configurations
+    unique_configs = df[['_config_id'] + config_cols].drop_duplicates().reset_index(drop=True)
+    
+    # Sort configurations by page table size, PWC entries, and TOC settings
+    sort_cols = [col for col in ['pgd_size', 'pud_size', 'pmd_size', 'pte_size', 
+                               'pgd_pwc_entries', 'pud_pwc_entries', 'pmd_pwc_entries',
+                               'toc_enabled', 'toc_size'] if col in unique_configs.columns]
+    if sort_cols:
+        unique_configs = unique_configs.sort_values(by=sort_cols).reset_index(drop=True)
+    
+    # Create descriptive labels for the unique configurations
+    config_labels = []
+    for i, row in unique_configs.iterrows():
+        config_id = row['_config_id']
+        # Create a more user-friendly label
+        label_parts = config_id.split("::")
+        config_labels.append((i, config_id, " ".join(label_parts)))
+    
+    # Get metric columns for plotting
     metric_columns = [col for col in df.columns if any(x in col for x in 
-                                                   ['hit', 'miss', 'efficiency', 'accesses', 'cost', 'avg'])]
+                                                  ['hit', 'miss', 'efficiency', 'accesses', 'cost', 'avg'])]
     
     # Sort columns by name for better display
     metric_columns.sort()
     
-    # Get unique values for config columns
-    unique_values = get_unique_values(df, config_columns + ['workload'])
+    # Get unique workload values if available
+    workload_values = []
+    if 'workload' in df.columns:
+        workload_values = sorted(df['workload'].unique())
     
     # Plot type selection
     print("\n=== Plot Type Selection ===")
@@ -832,68 +987,98 @@ def interactive_mode(timestamp_files, experiment_names):
         x_column = 'workload'
     else:
         print("\nAvailable columns:")
-        for i, col in enumerate(config_columns, 1):
+        available_cols = all_config_cols + [col for col in df.columns if col not in all_config_cols + ['_config_id'] and col != 'workload']
+        for i, col in enumerate(available_cols, 1):
             print(f"{i}. {col}")
         
         while True:
             try:
                 col_choice = int(input("Enter column number: "))
-                if 1 <= col_choice <= len(config_columns):
-                    x_column = config_columns[col_choice - 1]
+                if 1 <= col_choice <= len(available_cols):
+                    x_column = available_cols[col_choice - 1]
                     break
-                print(f"Invalid choice. Please enter a number between 1 and {len(config_columns)}.")
+                print(f"Invalid choice. Please enter a number between 1 and {len(available_cols)}.")
             except ValueError:
                 print("Invalid input. Please enter a number.")
     
-    # Y-axis (metric) selection - MODIFIED to support multiple metrics
+    # Y-axis (metric) selection - support multiple metrics
     y_columns = interactive_metric_selection(metric_columns)
     
     # For grouped bar plots, select group column
     group_column = None
     if plot_type == 'grouped':
         print("\n=== Group Column Selection ===")
-        for i, col in enumerate(config_columns, 1):
+        group_cols = all_config_cols + [col for col in df.columns if col not in all_config_cols + ['_config_id'] and col != 'workload']
+        for i, col in enumerate(group_cols, 1):
             print(f"{i}. {col}")
         
         while True:
             try:
-                group_choice = int(input(f"Enter your choice (1-{len(config_columns)}): "))
-                if 1 <= group_choice <= len(config_columns):
-                    group_column = config_columns[group_choice - 1]
+                group_choice = int(input(f"Enter your choice (1-{len(group_cols)}): "))
+                if 1 <= group_choice <= len(group_cols):
+                    group_column = group_cols[group_choice - 1]
                     break
-                print(f"Invalid choice. Please enter a number between 1 and {len(config_columns)}.")
+                print(f"Invalid choice. Please enter a number between 1 and {len(group_cols)}.")
             except ValueError:
                 print("Invalid input. Please enter a number.")
     
     # Configuration columns selection - Use all config columns by default
-    selected_config_columns = config_columns
+    selected_config_columns = all_config_cols
 
-    # Filter selection
-    filters = {}
-    print("\n=== Filter Selection ===")
-    print("Would you like to apply filters? (y/[N])")
+    # Filter selection - Only allow filtering on configurations and workload
+    selected_config_ids = []
+    selected_workloads = []
+    
+    # Configuration filtering
+    print("\n=== Configuration Filter Selection ===")
+    print("Select which configurations to include? (y/[N])")
     filter_choice = input().lower()
     
     if filter_choice == 'y':
-        # For each column with unique values, ask about filtering
-        for col, values in unique_values.items():
-            if len(values) > 1:  # Only ask if there are multiple values
-                print(f"\nAvailable values for {col}:")
-                for i, val in enumerate(values, 1):
-                    print(f"{i}. {val}")
-                
-                print("Enter the numbers of values to include (separated by spaces), or press Enter for all:")
-                filter_input = input().strip()
-                
-                if filter_input:
-                    try:
-                        filter_choices = [int(choice) for choice in filter_input.split()]
-                        if all(1 <= choice <= len(values) for choice in filter_choices):
-                            filters[col] = [values[choice - 1] for choice in filter_choices]
-                        else:
-                            print(f"Invalid choices. Including all values for {col}.")
-                    except ValueError:
-                        print(f"Invalid input. Including all values for {col}.")
+        # Show all unique configuration combinations (sorted)
+        print("\n=== Available Configuration Combinations ===")
+        print("Select which complete configurations to include:")
+        
+        for i, (idx, config_id, config_label) in enumerate(config_labels, 1):
+            print(f"{i}. {config_label}")
+        
+        print("\nEnter the numbers of configurations to include (separated by spaces), or press Enter for all:")
+        filter_input = input().strip()
+        
+        if filter_input:
+            try:
+                filter_choices = [int(choice) for choice in filter_input.split()]
+                if all(1 <= choice <= len(config_labels) for choice in filter_choices):
+                    # Get the selected configuration IDs
+                    selected_config_ids = [config_labels[choice - 1][1] for choice in filter_choices]
+                else:
+                    print("Invalid choices. Including all configurations.")
+            except ValueError:
+                print("Invalid input. Including all configurations.")
+    
+    # Workload filtering (if available)
+    if workload_values:
+        print("\n=== Workload Filter Selection ===")
+        print("Select which workloads to include? (y/[N])")
+        workload_filter_choice = input().lower()
+        
+        if workload_filter_choice == 'y':
+            print("\nAvailable workloads:")
+            for i, val in enumerate(workload_values, 1):
+                print(f"{i}. {val}")
+            
+            print("\nEnter the numbers of workloads to include (separated by spaces), or press Enter for all:")
+            filter_input = input().strip()
+            
+            if filter_input:
+                try:
+                    filter_choices = [int(choice) for choice in filter_input.split()]
+                    if all(1 <= choice <= len(workload_values) for choice in filter_choices):
+                        selected_workloads = [workload_values[choice - 1] for choice in filter_choices]
+                    else:
+                        print("Invalid choices. Including all workloads.")
+                except ValueError:
+                    print("Invalid input. Including all workloads.")
     
     # Sort option
     print("\n=== Sort Option ===")
@@ -939,15 +1124,20 @@ def interactive_mode(timestamp_files, experiment_names):
         # Create the directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
     
-    # Create options dictionary with default config_columns
+    # Clean up temporary column
+    if '_config_id' in df.columns:
+        df = df.drop('_config_id', axis=1)
+    
+    # Create options dictionary
     options = {
         'selected_timestamps': selected_timestamps,
         'plot_type': plot_type,
         'x_column': x_column,
-        'y_columns': y_columns,  # Now a list of columns
+        'y_columns': y_columns,  # List of columns
         'group_column': group_column,
         'config_columns': selected_config_columns,
-        'filters': filters,
+        'selected_config_ids': selected_config_ids,  # Configuration filtering
+        'selected_workloads': selected_workloads,    # Workload filtering
         'sort_bars': sort_bars,
         'output_dir': output_dir,
         'compare_timestamps': compare_timestamps
@@ -1059,7 +1249,8 @@ def main():
         y_columns = options['y_columns']
         group_column = options['group_column']
         config_columns = options['config_columns']
-        filters = options['filters']
+        selected_config_ids = options.get('selected_config_ids', [])
+        other_filters = options.get('other_filters', {})
         sort_bars = options['sort_bars']
         output_dir = options['output_dir']
         compare_timestamps = options['compare_timestamps']
@@ -1082,7 +1273,8 @@ def main():
         x_column = args.x_column
         y_columns = args.y_columns
         group_column = args.group_column
-        filters = {}
+        selected_config_ids = []  # No configuration filtering in command-line mode
+        other_filters = {}
         sort_bars = args.sort
         output_dir = args.output_dir
         compare_timestamps = args.compare
@@ -1090,6 +1282,19 @@ def main():
     # Create output directory if specified
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
+    
+    # Function to apply all filters to a dataframe
+    def apply_all_filters(df):
+        # Apply configuration filtering if any configs were selected
+        if selected_config_ids:
+            df = filter_data(df, selected_config_ids)
+        
+        # Apply other column filters
+        for col, values in other_filters.items():
+            if col in df.columns and values:
+                df = df[df[col].isin(values)]
+        
+        return df
     
     # If comparing multiple timestamps, load all data and create comparison plots
     if compare_timestamps and len(selected_timestamps) > 1:
@@ -1111,8 +1316,8 @@ def main():
                 if 'toc_size' in df.columns:
                     df['toc_size'] = df['toc_size'].fillna(0)
                 
-                # Apply filters
-                filtered_df = filter_data(df, filters)
+                # Apply all filters
+                filtered_df = apply_all_filters(df)
                 dataframes.append(filtered_df)
             else:
                 dataframes.append(pd.DataFrame())
@@ -1174,8 +1379,8 @@ def main():
             if 'toc_size' in df.columns:
                 df['toc_size'] = df['toc_size'].fillna(0)
             
-            # Apply filters
-            filtered_df = filter_data(df, filters)
+            # Apply all filters
+            filtered_df = apply_all_filters(df)
             
             # Process each selected y-column (metric)
             for y_column in y_columns:
@@ -1224,6 +1429,5 @@ def main():
                         title=title,
                         output_file=output_file
                     )
-
 if __name__ == "__main__":
     main()
