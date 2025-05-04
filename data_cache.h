@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
-#include <utility>
 #include "cache.h"
 #include "common.h"
 
@@ -261,6 +260,6 @@ class CacheHierarchy {
            << "Misses: " << cache.GetAccesses() - cache.GetHits() << "\n";
         cache.PrintDetailedStats(os);
         os << "---------------------------------\n";
-        os << std::endl;
+        os << '\n';
     }
 };

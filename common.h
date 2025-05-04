@@ -136,12 +136,11 @@ struct TranslationStats {
 
     void PrintTranslationStats(std::ostream& os) const {
         UINT64 totalTranslations = this->GetTotalTranslation();
-        os << "\nTranslation Path Statistics:" << std::endl;
-        os << "===========================" << std::endl;
+        os << "\nTranslation Path Statistics:" << '\n';
+        os << "===========================" << '\n';
         os << std::left << std::setw(30) << "Path" << std::right
-           << std::setw(15) << "Count" << std::setw(15) << "Percentage"
-           << std::endl;
-        os << std::string(60, '-') << std::endl;
+           << std::setw(15) << "Count" << std::setw(15) << "Percentage" << '\n';
+        os << std::string(60, '-') << '\n';
 
         os << std::left << std::setw(30) << "L1 TLB Hit" << std::right
            << std::setw(15) << this->l1TlbHits << std::setw(15) << std::fixed
@@ -149,7 +148,7 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->l1TlbHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "L2 TLB Hit" << std::right
            << std::setw(15) << this->l2TlbHits << std::setw(15) << std::fixed
@@ -157,7 +156,7 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->l2TlbHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "PMD PWC Hit" << std::right
            << std::setw(15) << this->pmdCacheHits << std::setw(15) << std::fixed
@@ -165,7 +164,7 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->pmdCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "PUD PWC Hit" << std::right
            << std::setw(15) << this->pudCacheHits << std::setw(15) << std::fixed
@@ -173,7 +172,7 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->pudCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "PGD PWC Hit" << std::right
            << std::setw(15) << this->pgdCacheHits << std::setw(15) << std::fixed
@@ -181,7 +180,7 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->pgdCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "Full Page Walk" << std::right
            << std::setw(15) << this->fullWalks << std::setw(15) << std::fixed
@@ -189,63 +188,63 @@ struct TranslationStats {
            << (totalTranslations > 0
                    ? (double)this->fullWalks / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
 
         os << std::left << std::setw(30) << "Total Translations" << std::right
            << std::setw(15) << totalTranslations << std::setw(15) << "100.00%"
-           << std::endl;
+           << '\n';
 
         // Calculate TLB efficiency
         double tlbEfficiency = (double)(this->l1TlbHits + this->l2TlbHits) /
                                totalTranslations * 100.0;
         os << "\nTLB Efficiency: " << std::fixed << std::setprecision(2)
            << tlbEfficiency << "% (translations resolved by L1 or L2 TLB)"
-           << std::endl;
+           << '\n';
 
-        os << "Data Cache Stats during Translation:" << std::endl;
-        os << "===========================" << std::endl;
+        os << "Data Cache Stats during Translation:" << '\n';
+        os << "===========================" << '\n';
         os << std::left << std::setw(30) << "PTE Data Cache Hits" << std::right
            << std::setw(15) << this->pteDataCacheHits << std::setw(15)
            << std::fixed << std::setprecision(2)
            << (totalTranslations > 0
                    ? (double)this->pteDataCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
         os << std::left << std::setw(30) << "PTE Data Cache Misses"
            << std::right << std::setw(15) << this->pteDataCacheMisses
            << std::setw(15) << std::fixed << std::setprecision(2)
            << (totalTranslations > 0 ? (double)this->pteDataCacheMisses /
                                            totalTranslations * 100.0
                                      : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
         os << std::left << std::setw(30) << "L2 Data Cache Access" << std::right
            << std::setw(15) << this->l2DataCacheAccess << std::setw(15)
            << std::fixed << std::setprecision(2)
            << (totalTranslations > 0
                    ? (double)this->l2DataCacheAccess / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
         os << std::left << std::setw(30) << "L2 Data Cache Hits" << std::right
            << std::setw(15) << this->l2DataCacheHits << std::setw(15)
            << std::fixed << std::setprecision(2)
            << (totalTranslations > 0
                    ? (double)this->l2DataCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
         os << std::left << std::setw(30) << "L3 Data Cache Access" << std::right
            << std::setw(15) << this->l3DataCacheAccess << std::setw(15)
            << std::fixed << std::setprecision(2)
            << (totalTranslations > 0
                    ? (double)this->l3DataCacheAccess / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
+           << "%" << '\n';
         os << std::left << std::setw(30) << "L3 Data Cache Hits" << std::right
            << std::setw(15) << this->l3DataCacheHits << std::setw(15)
            << std::fixed << std::setprecision(2)
            << (totalTranslations > 0
                    ? (double)this->l3DataCacheHits / totalTranslations * 100.0
                    : 0.0)
-           << "%" << std::endl;
-        os << std::string(60, '-') << std::endl;
+           << "%" << '\n';
+        os << std::string(60, '-') << '\n';
     }
 };

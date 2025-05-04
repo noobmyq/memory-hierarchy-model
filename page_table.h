@@ -113,7 +113,7 @@ class PageTable {
           pmdStats_("PMD (Page Middle Directory)", pmdEntryNum),
           pteStats_("PTE (Page Table Entry)", pteEntryNum) {
         // Allocate the root page table (PGD)
-        cr3_ = physMem_.allocateFrame() * kMemTracePageSize;
+        cr3_ = physMem_.AllocateFrame() * kMemTracePageSize;
         pageTables_[cr3_] = std::make_unique<PageTableEntry[]>(pgdEntryNum);
         // memset all entries to 0
         std::fill_n(pageTables_[cr3_].get(), pgdEntryNum, PageTableEntry());
@@ -180,7 +180,7 @@ class PageTable {
         if (!pteEntry.present) {
             pteEntry.present = 1;
             pteEntry.writable = 1;
-            pteEntry.pfn = physMem_.allocateFrame();
+            pteEntry.pfn = physMem_.AllocateFrame();
             pteStats_.entries++;
             // assert(!hit);
         }
@@ -221,7 +221,7 @@ class PageTable {
         if (!pmdEntry.present) {
             pmdEntry.present = 1;
             pmdEntry.writable = 1;
-            pmdEntry.pfn = physMem_.allocateFrame();
+            pmdEntry.pfn = physMem_.AllocateFrame();
             UINT64 pteAddr = pmdEntry.pfn * kMemTracePageSize;
             pageTables_[pteAddr] =
                 std::make_unique<PageTableEntry[]>(pteEntryNum_);
@@ -269,7 +269,7 @@ class PageTable {
         if (!pudEntry.present) {
             pudEntry.present = 1;
             pudEntry.writable = 1;
-            pudEntry.pfn = physMem_.allocateFrame();
+            pudEntry.pfn = physMem_.AllocateFrame();
             UINT64 pmdAddr = pudEntry.pfn * kMemTracePageSize;
             pageTables_[pmdAddr] =
                 std::make_unique<PageTableEntry[]>(pmdEntryNum_);
@@ -314,7 +314,7 @@ class PageTable {
         if (!pgdEntry.present) {
             pgdEntry.present = 1;
             pgdEntry.writable = 1;
-            pgdEntry.pfn = physMem_.allocateFrame();
+            pgdEntry.pfn = physMem_.AllocateFrame();
             UINT64 pudAddr = pgdEntry.pfn * kMemTracePageSize;
             pageTables_[pudAddr] =
                 std::make_unique<PageTableEntry[]>(pudEntryNum_);
@@ -421,13 +421,13 @@ class PageTable {
         translationStats_.PrintTranslationStats(os);
 
         // Cache statistics
-        os << "\nCache Statistics:" << std::endl;
-        os << "================" << std::endl;
+        os << "\nCache Statistics:" << '\n';
+        os << "================" << '\n';
         os << std::left << std::setw(30) << "Cache" << std::setw(10)
            << "Entries" << std::setw(10) << "Sets" << std::setw(10) << "Ways"
            << std::right << std::setw(15) << "Accesses" << std::setw(15)
-           << "Hits" << std::setw(15) << "Hit Rate" << std::endl;
-        os << std::string(105, '-') << std::endl;
+           << "Hits" << std::setw(15) << "Hit Rate" << '\n';
+        os << std::string(105, '-') << '\n';
 
         // TLB stats
         os << std::left << std::setw(30) << l1Tlb_.GetName() << std::setw(10)
@@ -436,7 +436,7 @@ class PageTable {
            << std::setw(15) << l1Tlb_.GetAccesses() << std::setw(15)
            << l1Tlb_.GetHits() << std::setw(15) << std::fixed
            << std::setprecision(2) << l1Tlb_.GetHitRate() * 100.0 << "%"
-           << std::endl;
+           << '\n';
 
         os << std::left << std::setw(30) << l2Tlb_.GetName() << std::setw(10)
            << l2Tlb_.GetSize() << std::setw(10) << l2Tlb_.GetNumSets()
@@ -444,7 +444,7 @@ class PageTable {
            << std::setw(15) << l2Tlb_.GetAccesses() << std::setw(15)
            << l2Tlb_.GetHits() << std::setw(15) << std::fixed
            << std::setprecision(2) << l2Tlb_.GetHitRate() * 100.0 << "%"
-           << std::endl;
+           << '\n';
 
         // PWC stats
         os << std::left << std::setw(30) << pgdPwc_.GetName() << std::setw(10)
@@ -453,7 +453,7 @@ class PageTable {
            << std::setw(15) << pgdPwc_.GetAccesses() << std::setw(15)
            << pgdPwc_.GetHits() << std::setw(15) << std::fixed
            << std::setprecision(2) << pgdPwc_.GetHitRate() * 100.0 << "%"
-           << std::endl;
+           << '\n';
 
         os << std::left << std::setw(30) << pudPwc_.GetName() << std::setw(10)
            << pudPwc_.GetSize() << std::setw(10) << pudPwc_.GetNumSets()
@@ -461,7 +461,7 @@ class PageTable {
            << std::setw(15) << pudPwc_.GetAccesses() << std::setw(15)
            << pudPwc_.GetHits() << std::setw(15) << std::fixed
            << std::setprecision(2) << pudPwc_.GetHitRate() * 100.0 << "%"
-           << std::endl;
+           << '\n';
 
         os << std::left << std::setw(30) << pmdPwc_.GetName() << std::setw(10)
            << pmdPwc_.GetSize() << std::setw(10) << pmdPwc_.GetNumSets()
@@ -469,29 +469,26 @@ class PageTable {
            << std::setw(15) << pmdPwc_.GetAccesses() << std::setw(15)
            << pmdPwc_.GetHits() << std::setw(15) << std::fixed
            << std::setprecision(2) << pmdPwc_.GetHitRate() * 100.0 << "%"
-           << std::endl;
+           << '\n';
 
-        os << "\nVirtual Address Bit Ranges Used for PWC Tags:" << std::endl;
+        os << "\nVirtual Address Bit Ranges Used for PWC Tags:" << '\n';
         os << std::left << std::setw(30) << pgdPwc_.GetName() << "["
-           << pgdPwc_.GetHighBit() << ":" << pgdPwc_.GetLowBit() << "]"
-           << std::endl;
+           << pgdPwc_.GetHighBit() << ":" << pgdPwc_.GetLowBit() << "]" << '\n';
         os << std::left << std::setw(30) << pudPwc_.GetName() << "["
-           << pudPwc_.GetHighBit() << ":" << pudPwc_.GetLowBit() << "]"
-           << std::endl;
+           << pudPwc_.GetHighBit() << ":" << pudPwc_.GetLowBit() << "]" << '\n';
         os << std::left << std::setw(30) << pmdPwc_.GetName() << "["
-           << pmdPwc_.GetHighBit() << ":" << pmdPwc_.GetLowBit() << "]"
-           << std::endl;
+           << pmdPwc_.GetHighBit() << ":" << pmdPwc_.GetLowBit() << "]" << '\n';
 
         // Page table statistics by level
-        os << "\nPage Table Statistics by Level:" << std::endl;
-        os << "==============================" << std::endl;
+        os << "\nPage Table Statistics by Level:" << '\n';
+        os << "==============================" << '\n';
 
         // Header
         os << std::setw(30) << std::left << "Level" << std::setw(15)
            << std::right << "Accesses" << std::setw(15) << std::right
            << "Tables" << std::setw(15) << std::right << "Entries"
-           << std::setw(15) << std::right << "Avg Fill %" << std::endl;
-        os << std::string(90, '-') << std::endl;
+           << std::setw(15) << std::right << "Avg Fill %" << '\n';
+        os << std::string(90, '-') << '\n';
 
         // Calculate and print stats for each level
         PrintLevelStats(os, pgdStats_);
@@ -499,10 +496,10 @@ class PageTable {
         PrintLevelStats(os, pmdStats_);
         PrintLevelStats(os, pteStats_);
 
-        os << "\nTotal page tables: " << pageTables_.size() << std::endl;
+        os << "\nTotal page tables: " << pageTables_.size() << '\n';
         os << "Total memory for page tables: "
            << (pageTables_.size() * kMemTracePageSize) / (1024.0 * 1024.0)
-           << " MB" << std::endl;
+           << " MB" << '\n';
     }
 
     void PrintMemoryStats(std::ostream& os) const {
@@ -544,7 +541,7 @@ class PageTable {
            << std::right << stats.accesses << std::setw(15) << std::right
            << stats.allocations << std::setw(15) << std::right << stats.entries
            << std::setw(15) << std::right << std::fixed << std::setprecision(2)
-           << avgFill << std::endl;
+           << avgFill << '\n';
     }
 
    public:

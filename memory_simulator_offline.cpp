@@ -13,7 +13,6 @@
 
 using std::cerr;
 using std::cout;
-using std::endl;
 
 // --- Offline Analyzer Class ---
 class OfflineAnalyzer {
@@ -39,11 +38,11 @@ class OfflineAnalyzer {
         std::ifstream input(config_.traceFile, std::ios::binary);
         if (!input.is_open()) {
             cerr << "Error: Could not open trace file: " << config_.traceFile
-                 << endl;
+                 << '\n';
             return false;
         }
 
-        cout << "Starting offline analysis..." << endl;
+        cout << "Starting offline analysis..." << '\n';
 
         // Initialize buffer for batch processing
         std::vector<MEMREF> buffer(config_.batchSize);
@@ -68,7 +67,7 @@ class OfflineAnalyzer {
             if (bytesRead % sizeof(MEMREF) != 0) {
                 cerr << "Warning: Partial record detected at end of file. "
                         "Skipping."
-                     << endl;
+                     << '\n';
             }
 
             // Process each MEMREF in the batch
@@ -96,7 +95,7 @@ class OfflineAnalyzer {
                                  .count();
 
         cout << "\nAnalysis complete in " << totalDuration << " seconds."
-             << endl;
+             << '\n';
         return true;
     }
 
@@ -152,7 +151,7 @@ class OfflineAnalyzer {
             cacheHierarchy_.PrintStats(outfile);
 
             outfile.close();
-            cout << "Detailed results saved to " << outputFile << endl;
+            cout << "Detailed results saved to " << outputFile << '\n';
         }
     }
 
@@ -233,7 +232,7 @@ SimConfig ParseArgs(int argc, char* argv[]) {
                  << "  --toc_size N               TOC size in bytes "
                     "(default: 0)\n"
                  << "  <traceFile>              Path to the trace file\n"
-                 << endl;
+                 << '\n';
             exit(0);
         } else if (arg == "--phys_mem_gb" && i + 1 < argc) {
             config.physMemGb = std::stoull(argv[++i]);
@@ -295,13 +294,13 @@ SimConfig ParseArgs(int argc, char* argv[]) {
             // Assume this is the trace file
             config.traceFile = arg;
         } else {
-            cerr << "Unknown option: " << arg << endl;
+            cerr << "Unknown option: " << arg << '\n';
             exit(1);
         }
     }
 
     if (config.traceFile.empty()) {
-        cerr << "Error: No trace file specified" << endl;
+        cerr << "Error: No trace file specified" << '\n';
         exit(1);
     }
 
@@ -310,8 +309,8 @@ SimConfig ParseArgs(int argc, char* argv[]) {
 
 // --- Main Function ---
 int main(int argc, char* argv[]) {
-    cout << "Memory Hierarchy Offline Analyzer" << endl;
-    cout << "=================================" << endl;
+    cout << "Memory Hierarchy Offline Analyzer" << '\n';
+    cout << "=================================" << '\n';
 
     // Parse command line arguments
     SimConfig config = ParseArgs(argc, argv);
@@ -322,7 +321,7 @@ int main(int argc, char* argv[]) {
     // Create and run the offline analyzer
     OfflineAnalyzer analyzer(config);
     if (!analyzer.Run()) {
-        cerr << "Error during analysis" << endl;
+        cerr << "Error during analysis" << '\n';
         return 1;
     }
 

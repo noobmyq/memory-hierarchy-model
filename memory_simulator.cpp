@@ -2,8 +2,6 @@
 #include <iostream>
 #include <memory>
 #include <ostream>
-#include <string>
-#include <unordered_map>
 #include "common.h"
 #include "data_cache.h"
 #include "page_table.h"
@@ -11,7 +9,6 @@
 
 using std::cerr;
 using std::cout;
-using std::endl;
 
 static_assert(sizeof(MEMREF) == 24, "MEMREF struct has unexpected padding");
 
@@ -194,7 +191,7 @@ VOID Fini(INT32 code, VOID* v) {
 INT32 Usage() {
     cerr << "This Pin tool instruments a program and simulates its memory "
             "hierarchy.\n";
-    cerr << KNOB_BASE::StringKnobSummary() << endl;
+    cerr << KNOB_BASE::StringKnobSummary() << '\n';
     return -1;
 }
 
@@ -237,7 +234,7 @@ int main(int argc, char* argv[]) {
     auto out_file = std::make_unique<std::ofstream>(KnobOutputFile.Value());
     if (!out_file->is_open()) {
         cerr << "Error: Unable to open output file " << KnobOutputFile.Value()
-             << endl;
+             << '\n';
         return 1;
     }
 
@@ -250,7 +247,7 @@ int main(int argc, char* argv[]) {
     bufId = PIN_DefineTraceBuffer(sizeof(MEMREF), NUM_BUF_PAGES, BufferFull,
                                   simulator);
     if (bufId == BUFFER_ID_INVALID) {
-        cerr << "Error: Buffer initialization failed" << endl;
+        cerr << "Error: Buffer initialization failed" << '\n';
         return 1;
     }
 
