@@ -7,6 +7,7 @@
 
 // Define types to match those in the original simulator
 typedef uint64_t ADDRINT;
+typedef uint8_t UINT8;
 typedef uint32_t UINT32;
 typedef uint64_t UINT64;
 

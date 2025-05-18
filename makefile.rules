@@ -35,6 +35,8 @@ SANITY_SUBSET :=
 #
 ##############################################################
 HEADER := cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb.h
+# Add headers from TinyPtr/src
+HEADER += $(wildcard TinyPtr/src/*.h)
 
 # Source Files
 TOOL_SRCS := memory_simulator.cpp
@@ -56,5 +58,5 @@ offline: $(OFFLINE_SRCS) ${HEADER}
 
 # debug for offline
 debug: $(OFFLINE_SRCS) ${HEADER}
-	$(CXX) -g -o memory_simulator_offline $(OFFLINE_SRCS)
+	$(CXX) -std=c++17 -g -o memory_simulator_offline $(OFFLINE_SRCS)
 	@echo "Offline analysis tool built successfully with debug symbols."

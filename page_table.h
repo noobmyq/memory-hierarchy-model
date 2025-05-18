@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -13,20 +14,63 @@
 #include "tlb.h"
 
 // Page Table Entry
-struct PageTableEntry {
+struct PageTableEntry8B {
     UINT64 present : 1;   // Present bit
     UINT64 writable : 1;  // Writable bit
     UINT64 user : 1;      // User accessible
     UINT64 pfn : 52;      // Physical Frame Number (40 bits used)
     UINT64 unused : 9;    // Unused bits
 
-    PageTableEntry() : present(0), writable(0), user(0), pfn(0), unused(0) {}
+    PageTableEntry8B() : present(0), writable(0), user(0), pfn(0), unused(0) {}
 };
+
+static_assert(sizeof(PageTableEntry8B) == 8, "PageTableEntry8B size mismatch!");
+
+struct PageTableEntry4B {
+    UINT32 present : 1;  // Present bit
+    UINT32 controlBits : 23;
+    UINT32 tinyPointer : 8;
+};
+
+static_assert(sizeof(PageTableEntry4B) == 4, "PageTableEntry4B size mismatch!");
+
+struct PageTableEntry2B {
+    UINT8 present : 1;      // Present bit
+    UINT8 controlBits : 7;  // Control bits
+    UINT8 tinyPointer : 8;
+};
+
+static_assert(sizeof(PageTableEntry2B) == 2, "PageTableEntry2B size mismatch!");
+
+struct PageTableEntry1B {
+    UINT8 present : 1;  // Present bit
+    UINT8 controlBits : 1;
+    UINT8 tinyPointer : 6;
+};
+
+static_assert(sizeof(PageTableEntry1B) == 1, "PageTableEntry1B size mismatch!");
+
+struct PageTablePage {
+    union {
+        PageTableEntry8B entries8B[512];   // 8-byte entries
+        PageTableEntry4B entries4B[1024];  // 4-byte entries
+        PageTableEntry2B entries2B[2048];  // 2-byte entries
+        PageTableEntry1B entries1B[4096];  // 1-byte entries
+    } __attribute__((aligned(4096)));      // 4KB page size
+
+    PageTablePage() {
+        // fill with 0
+        memset(this, 0, sizeof(PageTablePage));
+    }
+};
+
+static_assert(sizeof(PageTablePage) == 4096,
+              "DummyPageTablePage size mismatch!");
 
 // Page Table (4-level) with PWCs and two-level TLB
 class PageTable {
    private:
-    std::unordered_map<UINT64, std::unique_ptr<PageTableEntry[]>> pageTables_;
+    std::unordered_map<UINT64, std::unique_ptr<PageTablePage>> pageTables_;
     UINT64 cr3_;                 // Page table base register (points to PGD)
     PhysicalMemory& physMem_;    // Reference to physical memory
     CacheHierarchy& dataCache_;  // Reference to data cache
@@ -40,6 +84,11 @@ class PageTable {
     const UINT64 pudEntryNum_;
     const UINT64 pmdEntryNum_;
     const UINT64 pteEntryNum_;
+
+    const int pgdEntryWidth_ = 8;
+    const int pudEntryWidth_;
+    const int pmdEntryWidth_;
+    const int pteEntryWidth_;
 
     const int pteIndexShift_;
     const int pmdShift_;
@@ -101,6 +150,9 @@ class PageTable {
           pmdEntryNum_(pmdEntryNum),
           pteEntryNum_(pteEntryNum),
           pteIndexShift_(kPageShift),
+          pudEntryWidth_(4096 >> StaticLog2(pudEntryNum_)),
+          pmdEntryWidth_(4096 >> StaticLog2(pmdEntryNum_)),
+          pteEntryWidth_(4096 >> StaticLog2(pteEntryNum_)),
           pmdShift_(pteIndexShift_ + StaticLog2(pteEntryNum)),
           pudShift_(pmdShift_ + StaticLog2(pmdEntryNum)),
           pgdShift_(pudShift_ + StaticLog2(pudEntryNum)),
@@ -113,10 +165,8 @@ class PageTable {
           pmdStats_("PMD (Page Middle Directory)", pmdEntryNum),
           pteStats_("PTE (Page Table Entry)", pteEntryNum) {
         // Allocate the root page table (PGD)
-        cr3_ = physMem_.AllocateFrame() * kMemTracePageSize;
-        pageTables_[cr3_] = std::make_unique<PageTableEntry[]>(pgdEntryNum);
-        // memset all entries to 0
-        std::fill_n(pageTables_[cr3_].get(), pgdEntryNum, PageTableEntry());
+        cr3_ = physMem_.AllocateFrame(0) * kMemTracePageSize;
+        pageTables_[cr3_] = std::make_unique<PageTablePage>();
         pgdStats_.allocations++;
         // assert that the page table entry is power of 2
         assert((pgdEntryNum & (pgdEntryNum - 1)) == 0);
@@ -157,6 +207,216 @@ class PageTable {
 
     UINT64 GetOffset(ADDRINT vaddr) const { return vaddr & kPageMask; }
 
+    UINT64 GetPudPfn(const UINT64 pgdIndex) {
+        PageTableEntry8B& pgdEntry = pageTables_[cr3_]->entries8B[pgdIndex];
+        UINT64 pgdEntryAddr = cr3_ + (pgdIndex * (pgdEntryWidth_));
+        // Allocate PUD if not present
+        if (!pgdEntry.present) {
+            pgdEntry.present = 1;
+            pgdEntry.writable = 1;
+            pgdEntry.pfn = physMem_.AllocateFrame(pgdEntryAddr);
+            UINT64 pudAddr = pgdEntry.pfn << kPageShift;
+            pageTables_[pudAddr] = std::make_unique<PageTablePage>();
+            pudStats_.allocations++;
+            pgdStats_.entries++;
+        }
+        return pgdEntry.pfn;
+    }
+
+    // Helper template function to handle different entry types
+    template <typename EntryType>
+    UINT64 AllocatePmdIfNotPresent(EntryType& pudEntry, UINT64 pudAddr,
+                                   UINT64 pudIndex) {
+        UINT64 pmdPfn = 0;
+        if constexpr (std::is_same<EntryType, PageTableEntry8B>::value) {
+            // Method for PageTableEntry8B
+            if (!pudEntry.present) {
+                pudEntry.present = 1;
+                pudEntry.writable = 1;
+                pudEntry.pfn = physMem_.AllocateFrame(pudAddr);
+                UINT64 pmdAddr = pudEntry.pfn << kPageShift;
+                pageTables_[pmdAddr] = std::make_unique<PageTablePage>();
+                pmdStats_.allocations++;
+                pudStats_.entries++;
+            }
+            pmdPfn = pudEntry.pfn;
+        } else {
+            // Method for other entry types
+            if (!pudEntry.present) {
+                pudEntry.present = 1;
+                pudEntry.controlBits = 0;  // Example: set controlBits to 0
+                auto [tinyPointer, pfn] =
+                    physMem_.AllocateTinyPtrFrame(pudAddr, 8);
+                pudEntry.tinyPointer = tinyPointer;
+                UINT64 pmdAddr = pfn << kPageShift;
+                pageTables_[pmdAddr] = std::make_unique<PageTablePage>();
+                pmdStats_.allocations++;
+                pudStats_.entries++;
+            }
+            pmdPfn = physMem_.DecodeFrame(pudAddr, pudEntry.tinyPointer);
+        }
+        return pmdPfn;
+    }
+
+    UINT64 GetPmdPfn(const UINT64 pudIndex, const ADDRINT pudAddr) {
+        UINT64 pmdPfn = 0;
+        switch ((pudEntryWidth_)) {
+            case 8: {
+                PageTableEntry8B& pudEntry =
+                    pageTables_[pudAddr]->entries8B[pudIndex];
+                pmdPfn = AllocatePmdIfNotPresent(pudEntry, pudAddr, pudIndex);
+            } break;
+            case 4: {
+                PageTableEntry4B& pudEntry =
+                    pageTables_[pudAddr]->entries4B[pudIndex];
+                pmdPfn = AllocatePmdIfNotPresent(pudEntry, pudAddr, pudIndex);
+            } break;
+            case 2: {
+                PageTableEntry2B& pudEntry =
+                    pageTables_[pudAddr]->entries2B[pudIndex];
+                pmdPfn = AllocatePmdIfNotPresent(pudEntry, pudAddr, pudIndex);
+            } break;
+            case 1: {
+                PageTableEntry1B& pudEntry =
+                    pageTables_[pudAddr]->entries1B[pudIndex];
+                pmdPfn = AllocatePmdIfNotPresent(pudEntry, pudAddr, pudIndex);
+            } break;
+            default:
+                assert(false && "Invalid entry width for PUD");
+        }
+        return pmdPfn;
+    }
+
+    template <typename EntryType>
+    UINT64 AllocatePteIfNotPresent(EntryType& pmdEntry, UINT64 pmdAddr,
+                                   UINT64 pmdIndex) {
+        UINT64 ptePfn = 0;
+        if constexpr (std::is_same<EntryType, PageTableEntry8B>::value) {
+            // Method for PageTableEntry8B
+            if (!pmdEntry.present) {
+                pmdEntry.present = 1;
+                pmdEntry.writable = 1;
+                pmdEntry.pfn = physMem_.AllocateFrame(pmdAddr);
+                UINT64 pteAddr = pmdEntry.pfn << kPageShift;
+                pageTables_[pteAddr] = std::make_unique<PageTablePage>();
+                pteStats_.allocations++;
+                pmdStats_.entries++;
+            }
+            ptePfn = pmdEntry.pfn;
+        } else {
+            // Method for other entry types
+            if (!pmdEntry.present) {
+                pmdEntry.present = 1;
+                pmdEntry.controlBits = 0;  // Example: set controlBits to 0
+                auto [tinyPointer, pfn] =
+                    physMem_.AllocateTinyPtrFrame(pmdAddr, 8);
+                pmdEntry.tinyPointer = tinyPointer;
+                UINT64 pteAddr = pfn << kPageShift;
+                pageTables_[pteAddr] = std::make_unique<PageTablePage>();
+                pteStats_.allocations++;
+                pmdStats_.entries++;
+            }
+            ptePfn = physMem_.DecodeFrame(pmdAddr, pmdEntry.tinyPointer);
+        }
+        return ptePfn;
+    }
+
+    UINT64 GetPtePfn(const UINT64 pmdIndex, const ADDRINT pmdAddr) {
+        UINT64 ptePfn = 0;
+        switch ((pmdEntryWidth_)) {
+            case 8: {
+                PageTableEntry8B& pmdEntry =
+                    pageTables_[pmdAddr]->entries8B[pmdIndex];
+                ptePfn = AllocatePteIfNotPresent(pmdEntry, pmdAddr, pmdIndex);
+            } break;
+            case 4: {
+                PageTableEntry4B& pmdEntry =
+                    pageTables_[pmdAddr]->entries4B[pmdIndex];
+                ptePfn = AllocatePteIfNotPresent(pmdEntry, pmdAddr, pmdIndex);
+            } break;
+            case 2: {
+                PageTableEntry2B& pmdEntry =
+                    pageTables_[pmdAddr]->entries2B[pmdIndex];
+                ptePfn = AllocatePteIfNotPresent(pmdEntry, pmdAddr, pmdIndex);
+            } break;
+            case 1: {
+                PageTableEntry1B& pmdEntry =
+                    pageTables_[pmdAddr]->entries1B[pmdIndex];
+                ptePfn = AllocatePteIfNotPresent(pmdEntry, pmdAddr, pmdIndex);
+            } break;
+            default:
+                assert(false && "Invalid entry width for PMD");
+        }
+        return ptePfn;
+    }
+
+    template <typename EntryType>
+    UINT64 AllocatePhysFrameIfNotPresent(EntryType& pteEntry, UINT64 pteAddr,
+                                         UINT64 pteIndex) {
+        UINT64 physFrame = 0;
+        if constexpr (std::is_same<EntryType, PageTableEntry8B>::value) {
+            // Method for PageTableEntry8B
+            if (!pteEntry.present) {
+                pteEntry.present = 1;
+                pteEntry.writable = 1;
+                pteEntry.pfn = physMem_.AllocateFrame(pteAddr);
+                UINT64 physFrame = pteEntry.pfn >> kPageShift;
+                pageTables_[physFrame] = std::make_unique<PageTablePage>();
+                pteStats_.allocations++;
+                pteStats_.entries++;
+            }
+            physFrame = pteEntry.pfn;
+        } else {
+            // Method for other entry types, and we know the memory is a Mosaic memory
+            if (!pteEntry.present) {
+                pteEntry.present = 1;
+                pteEntry.controlBits = 0;  // Example: set controlBits to 0
+                auto [tinyPointer, pfn] =
+                    physMem_.AllocateTinyPtrFrame(pteAddr, 8);
+                pteEntry.tinyPointer = tinyPointer;
+                UINT64 physFrame = pfn << kPageShift;
+                pageTables_[physFrame] = std::make_unique<PageTablePage>();
+                pteStats_.allocations++;
+                pteStats_.entries++;
+            }
+            physFrame = physMem_.DecodeFrame(pteAddr, pteEntry.tinyPointer);
+        }
+        return physFrame;
+    }
+
+    UINT64 GetPhysFrame(const UINT64 pteIndex, const ADDRINT pteAddr) {
+        UINT64 physFrame = 0;
+        switch ((pteEntryWidth_)) {
+            case 8: {
+                PageTableEntry8B& pteEntry =
+                    pageTables_[pteAddr]->entries8B[pteIndex];
+                physFrame =
+                    AllocatePhysFrameIfNotPresent(pteEntry, pteAddr, pteIndex);
+            } break;
+            case 4: {
+                PageTableEntry4B& pteEntry =
+                    pageTables_[pteAddr]->entries4B[pteIndex];
+                physFrame =
+                    AllocatePhysFrameIfNotPresent(pteEntry, pteAddr, pteIndex);
+            } break;
+            case 2: {
+                PageTableEntry2B& pteEntry =
+                    pageTables_[pteAddr]->entries2B[pteIndex];
+                physFrame =
+                    AllocatePhysFrameIfNotPresent(pteEntry, pteAddr, pteIndex);
+            } break;
+            case 1: {
+                PageTableEntry1B& pteEntry =
+                    pageTables_[pteAddr]->entries1B[pteIndex];
+                physFrame =
+                    AllocatePhysFrameIfNotPresent(pteEntry, pteAddr, pteIndex);
+            } break;
+            default:
+                assert(false && "Invalid entry width for PTE");
+        }
+        return physFrame;
+    }
+
     // Complete translation from PTE level - used by PMD PWC hit path
     ADDRINT CompletePmdCacheHit(ADDRINT vaddr, UINT64 pteTablePfn) {
         UINT64 pteAddr = pteTablePfn << kPageShift;
@@ -174,16 +434,7 @@ class PageTable {
         if (isPteCachable_)
             hit = dataCache_.TranslateLookup(pteEntryAddr, pteEntryValue,
                                              translationStats_);
-        PageTableEntry& pteEntry = pageTables_[pteAddr][pteIndex];
-
-        // Allocate physical page if not present
-        if (!pteEntry.present) {
-            pteEntry.present = 1;
-            pteEntry.writable = 1;
-            pteEntry.pfn = physMem_.AllocateFrame();
-            pteStats_.entries++;
-            // assert(!hit);
-        }
+        UINT64 pfn = GetPhysFrame(pteIndex, pteAddr);
 
         // Handle memory/cache access
         if (hit) {
@@ -197,7 +448,7 @@ class PageTable {
         }
 
         // Return physical address
-        return (pteEntry.pfn << kPageShift) | offset;
+        return (pfn << kPageShift) | offset;
     }
 
     // Complete translation from PMD level - used by PUD PWC hit path
@@ -216,22 +467,7 @@ class PageTable {
             hit = dataCache_.TranslateLookup(pmdEntryAddr, pmdEntryValue,
                                              translationStats_);
 
-        PageTableEntry& pmdEntry = pageTables_[pmdAddr][pmdIndex];
-        // Allocate PTE if not present
-        if (!pmdEntry.present) {
-            pmdEntry.present = 1;
-            pmdEntry.writable = 1;
-            pmdEntry.pfn = physMem_.AllocateFrame();
-            UINT64 pteAddr = pmdEntry.pfn * kMemTracePageSize;
-            pageTables_[pteAddr] =
-                std::make_unique<PageTableEntry[]>(pteEntryNum_);
-            // memset all entries to 0
-            std::fill_n(pageTables_[pteAddr].get(), pteEntryNum_,
-                        PageTableEntry());
-            pteStats_.allocations++;
-            pmdStats_.entries++;
-            // assert(!hit);
-        }
+        UINT64 ptePfn = GetPtePfn(pmdIndex, pmdAddr);
         if (hit) {
             translationStats_.pteDataCacheHits++;
         } else {
@@ -243,10 +479,10 @@ class PageTable {
         }
 
         // Insert into PMD PWC
-        pmdPwc_.Insert(vaddr, pmdEntry.pfn);
+        pmdPwc_.Insert(vaddr, ptePfn);
 
         // Complete the translation
-        return CompletePmdCacheHit(vaddr, pmdEntry.pfn);
+        return CompletePmdCacheHit(vaddr, ptePfn);
     }
 
     // Complete translation from PUD level - used by PGD PWC hit path
@@ -255,8 +491,7 @@ class PageTable {
         UINT64 pudIndex = GetPudIndex(vaddr);
 
         // Access the PUD table
-        UINT64 entrySize = kMemTracePageSize / pudEntryNum_;
-        UINT64 pudEntryAddr = pudAddr + (pudIndex * entrySize);
+        UINT64 pudEntryAddr = pudAddr + (pudIndex * (pudEntryWidth_));
         // first access data cache
         UINT64 pudEntryValue = 0;
         bool hit = false;
@@ -264,21 +499,7 @@ class PageTable {
         if (isPteCachable_)
             hit = dataCache_.TranslateLookup(pudEntryAddr, pudEntryValue,
                                              translationStats_);
-        PageTableEntry& pudEntry = pageTables_[pudAddr][pudIndex];
-        // Allocate PMD if not present
-        if (!pudEntry.present) {
-            pudEntry.present = 1;
-            pudEntry.writable = 1;
-            pudEntry.pfn = physMem_.AllocateFrame();
-            UINT64 pmdAddr = pudEntry.pfn * kMemTracePageSize;
-            pageTables_[pmdAddr] =
-                std::make_unique<PageTableEntry[]>(pmdEntryNum_);
-            // memset all entries to 0
-            std::fill_n(pageTables_[pmdAddr].get(), pmdEntryNum_,
-                        PageTableEntry());
-            pmdStats_.allocations++;
-            pudStats_.entries++;
-        }
+        UINT64 pmdPfn = GetPmdPfn(pudIndex, pudAddr);
 
         if (hit) {
             translationStats_.pteDataCacheHits++;
@@ -291,39 +512,26 @@ class PageTable {
         }
 
         // Insert into PUD PWC
-        pudPwc_.Insert(vaddr, pudEntry.pfn);
+        pudPwc_.Insert(vaddr, pmdPfn);
 
         // Complete the translation
-        return CompletePudCacheHit(vaddr, pudEntry.pfn);
+        return CompletePudCacheHit(vaddr, pmdPfn);
     }
 
     // Complete a full page table walk
     ADDRINT CompleteFullWalk(ADDRINT vaddr) {
         // Step 1: Get PGD entry
         UINT64 pgdIndex = GetPgdIndex(vaddr);
-        UINT64 pgdAddr = cr3_ + (pgdIndex * sizeof(PageTableEntry));
+        UINT64 pgdEntryAddr = cr3_ + (pgdIndex * (pgdEntryWidth_));
         // first access data cache
         UINT64 pgdEntryValue = 0;
         bool hit = false;
         // Cache Lookup for PGD entry (if cacheable)
         if (isPteCachable_)
-            hit = dataCache_.TranslateLookup(pgdAddr, pgdEntryValue,
+            hit = dataCache_.TranslateLookup(pgdEntryAddr, pgdEntryValue,
                                              translationStats_);
-        PageTableEntry& pgdEntry = pageTables_[cr3_][pgdIndex];
-        // Allocate PUD if not present
-        if (!pgdEntry.present) {
-            pgdEntry.present = 1;
-            pgdEntry.writable = 1;
-            pgdEntry.pfn = physMem_.AllocateFrame();
-            UINT64 pudAddr = pgdEntry.pfn * kMemTracePageSize;
-            pageTables_[pudAddr] =
-                std::make_unique<PageTableEntry[]>(pudEntryNum_);
-            // memset all entries to 0
-            std::fill_n(pageTables_[pudAddr].get(), pudEntryNum_,
-                        PageTableEntry());
-            pudStats_.allocations++;
-            pgdStats_.entries++;
-        }
+
+        UINT64 pudPfn = GetPudPfn(pgdIndex);
         if (hit) {
             translationStats_.pteDataCacheHits++;
         } else {
@@ -335,10 +543,10 @@ class PageTable {
         }
 
         // Insert into PGD PWC
-        pgdPwc_.Insert(vaddr, pgdEntry.pfn);
+        pgdPwc_.Insert(vaddr, pudPfn);
 
         // Continue with PUD level
-        return CompletePgdCacheHit(vaddr, pgdEntry.pfn);
+        return CompletePgdCacheHit(vaddr, pudPfn);
     }
 
     // Translate a virtual address to physical address
