@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include "common.h"
+#include "utils/xxhash64.h"
 
 class BasePhysicalMemory {
    public:
@@ -12,7 +13,7 @@ class BasePhysicalMemory {
     virtual ~BasePhysicalMemory() = default;
 
     // Allocate a physical frame
-    virtual UINT64 AllocateFrame(UINT64 key, UINT8 keyWidth) = 0;
+    virtual UINT64 AllocateFrame(UINT64 key, UINT8 keyWidth = 8) = 0;
     virtual std::pair<UINT8, UINT64> AllocateTinyPtrFrame(UINT64 key,
                                                           UINT8 keyWidth) = 0;
     virtual UINT64 DecodeFrame(UINT64 key, UINT8 tinyPointer) = 0;
@@ -107,7 +108,22 @@ class MemoryPo2CTable {
    public:
     MemoryPo2CTable() = delete;
 
-    MemoryPo2CTable(int n);
+    MemoryPo2CTable(int n) {
+        binNum_ =
+            (n + MemoryPo2CTable::kBinSize - 1) / MemoryPo2CTable::kBinSize;
+        tab_ = new Bin[binNum_];
+        srand(time(0));
+        int hash_seed[2] = {rand(), rand()};
+        while (hash_seed[1] == hash_seed[0])
+            hash_seed[1] = rand();
+        for (int i = 0; i < 2; ++i)
+            hashBin_[i] = std::function<uint64_t(uint64_t)>(
+                [=](uint64_t key) -> uint64_t {
+                    return SlowXXHash64::hash(&key, sizeof(uint64_t),
+                                              hash_seed[i]) %
+                           binNum_;
+                });
+    }
 
     std::pair<UINT8, UINT64> Allocate(UINT64 key, UINT8 keyWidth) {
         uint64_t hashbin[2];
@@ -121,10 +137,12 @@ class MemoryPo2CTable {
         // ptr should not be 0 after the previous check in both bins
         assert(ptr);
 
-        ptr ^=
-            flag * (ptr != MemoryPo2CTable::kOverflowTinyPtr) * ((1 << 8) - 1);
         UINT64 binIndex = hashBin_[flag](key);
         UINT64 frameNum = binIndex * MemoryPo2CTable::kBinSize + ptr - 1;
+        ptr ^=
+            flag * (ptr != MemoryPo2CTable::kOverflowTinyPtr) * ((1 << 8) - 1);
+        assert(ptr != MemoryPo2CTable::kOverflowTinyPtr);
+        assert(ptr != MemoryPo2CTable::kNullTinyPtr);
         return {ptr, frameNum};
     }
 
@@ -171,8 +189,6 @@ class MosaicPhysicalMemory : public BasePhysicalMemory {
             exit(1);
         }
         auto [ptr, frameNum] = AllocateTinyPtrFrame(key, keyWidth);
-        assert(!frameAllocated_[frameNum] && "Frame already allocated");
-        frameAllocated_[frameNum] = true;
         return frameNum;
     }
     std::pair<UINT8, UINT64> AllocateTinyPtrFrame(UINT64 key, UINT8 keyWidth) {

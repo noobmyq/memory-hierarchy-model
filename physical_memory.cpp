@@ -1,14 +1,13 @@
 #include "physical_memory.h"
 #include "common.h"
-#include "dereference_table_64.h"
 
 MemoryPo2CTable::Bin::Bin() {
-    for (int i = 0; i < tinyptr::DereferenceTable64::kBinSize; ++i)
+    for (int i = 0; i < MemoryPo2CTable::kBinSize; ++i)
         bin_[i] = i + 2;
 }
 
 bool MemoryPo2CTable::Bin::Full() const {
-    return cnt_ == tinyptr::DereferenceTable64::kBinSize;
+    return cnt_ == MemoryPo2CTable::kBinSize;
 }
 
 UINT8 MemoryPo2CTable::Bin::Count() const {
@@ -17,7 +16,7 @@ UINT8 MemoryPo2CTable::Bin::Count() const {
 
 UINT8 MemoryPo2CTable::Bin::Insert(UINT64 _, UINT8 keyWidth) {
     if (this->Full())
-        return tinyptr::DereferenceTable64::kOverflowTinyPtr;
+        return MemoryPo2CTable::kOverflowTinyPtr;
     assert(keyWidth <= 8);
     UINT8 tmp = head_;
     const UINT8 threadholdIndex = (1 << (keyWidth - 1));

@@ -10,6 +10,7 @@
 #include "common.h"
 #include "data_cache.h"
 #include "page_table.h"
+#include "physical_memory.h"
 
 using std::cerr;
 using std::cout;
@@ -157,7 +158,7 @@ class OfflineAnalyzer {
 
    private:
     SimConfig config_;
-    PhysicalMemory physicalMemory_;
+    MosaicPhysicalMemory physicalMemory_;
     CacheHierarchy cacheHierarchy_;
     PageTable pageTable_;
     UINT64 accessCount_ = 0;
@@ -175,12 +176,12 @@ SimConfig ParseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
 
         if (arg == "-h" || arg == "--help") {
-            cout << "Usage: " << argv[0] << " [options] <traceFile>\n"
+            cout << "Usage: " << argv[0] << " [options] <trace_file>\n"
                  << "Options:\n"
                  << "  -h, --help                Show this help message\n"
                  << "  --phys_mem_gb N           Physical memory size in GB "
                     "(default: 1)\n"
-                 << "  --batchSize N            Batch size for processing "
+                 << "  --batch_size N            Batch size for processing "
                     "(default: 4096)\n"
                  << "  --l1_tlb_size N           L1 TLB size (default: 64)\n"
                  << "  --l1_tlb_ways N           L1 TLB associativity "
@@ -188,33 +189,33 @@ SimConfig ParseArgs(int argc, char* argv[]) {
                  << "  --l2_tlb_size N           L2 TLB size (default: 1024)\n"
                  << "  --l2_tlb_ways N           L2 TLB associativity "
                     "(default: 8)\n"
-                 << "  --l1_cache_size N         L1 Cache size in bytes "
+                 << "  --l1_cache_size N         L1 cache size in bytes "
                     "(default: 32768)\n"
-                 << "  --l1Ways N               L1 Cache associativity "
+                 << "  --l1_ways N               L1 cache associativity "
                     "(default: 8)\n"
-                 << "  --l1Line N               L1 Cache line size (default: "
+                 << "  --l1_line N               L1 cache line size (default: "
                     "64)\n"
-                 << "  --l2_cache_size N         L2 Cache size in bytes "
+                 << "  --l2_cache_size N         L2 cache size in bytes "
                     "(default: 262144)\n"
-                 << "  --l2Ways N               L2 Cache associativity "
+                 << "  --l2_ways N               L2 cache associativity "
                     "(default: 16)\n"
-                 << "  --l2Line N               L2 Cache line size (default: "
+                 << "  --l2_line N               L2 cache line size (default: "
                     "64)\n"
-                 << "  --l3_cache_size N         L3 Cache size in bytes "
+                 << "  --l3_cache_size N         L3 cache size in bytes "
                     "(default: 8388608)\n"
-                 << "  --l3_ways N               L3 Cache associativity "
+                 << "  --l3_ways N               L3 cache associativity "
                     "(default: 16)\n"
-                 << "  --l3Line N               L3 Cache line size (default: "
+                 << "  --l3_line N               L3 cache line size (default: "
                     "64)\n"
-                 << "  --pteCachable BOOL       PTE cacheable flag (default: "
+                 << "  --pte_cachable BOOL       PTE cacheable flag (default: "
                     "0)\n"
-                 << "  --pgdSize N              PGD size in entries "
+                 << "  --pgd_size N              PGD size in entries "
                     "(default: 512)\n"
-                 << "  --pudSize N              PUD size in entries "
+                 << "  --pud_size N              PUD size in entries "
                     "(default: 512)\n"
-                 << "  --pmdSize N              PMD size in entries "
+                 << "  --pmd_size N              PMD size in entries "
                     "(default: 512)\n"
-                 << "  --pteSize N              PTE size in entries "
+                 << "  --pte_size N              PTE size in entries "
                     "(default: 512)\n"
                  << "  --pgd_pwc_size N          PGD PWC size in entries "
                     "(default: 4)\n"
@@ -228,10 +229,10 @@ SimConfig ParseArgs(int argc, char* argv[]) {
                     "(default: 16)\n"
                  << "  --pmd_pwc_ways N          PMD PWC associativity "
                     "(default: 4)\n"
-                 << " ---toc_enabled BOOL          Enable TOC (default: 0)\n"
-                 << "  --toc_size N               TOC size in bytes "
+                 << "  --toc_enabled BOOL        Enable TOC (default: 0)\n"
+                 << "  --toc_size N              TOC size in bytes "
                     "(default: 0)\n"
-                 << "  <traceFile>              Path to the trace file\n"
+                 << "  <trace_file>              Path to the trace file\n"
                  << '\n';
             exit(0);
         } else if (arg == "--phys_mem_gb" && i + 1 < argc) {

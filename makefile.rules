@@ -15,10 +15,10 @@
 TOOL_ROOTS := memory_simulator
 
 # This defines any additional object files that need to be compiled.
-OBJECT_ROOTS :=
+OBJECT_ROOTS := physical_memory memory_simulator
 
 # This defines any static libraries (archives) that need to be built.
-LIB_ROOTS :=
+LIB_ROOTS := 
 
 ###### Place OS-specific definitions here ######
 
@@ -39,24 +39,35 @@ HEADER := cache.h common.h data_cache.h page_table.h physical_memory.h pwc.h tlb
 HEADER += $(wildcard TinyPtr/src/*.h)
 
 # Source Files
-TOOL_SRCS := memory_simulator.cpp
+TOOL_SRCS := memory_simulator.cpp physical_memory.cpp
 
 # Compiler Flags
-TOOL_CXXFLAGS += -std=c++17 -w -O3
+TOOL_CXXFLAGS += -std=c++17 -w -O3 -I. -I TinyPtr/src
 
 # Include Directories (assuming headers are in the same directory)
-TOOL_INCS += -I. 
+TOOL_INCS += -I. -I TinyPtr/src
+
 
 # Link with Pin Libraries
 # TOOL_LIBS += -lpin
+	
 
-OFFLINE_SRCS := memory_simulator_offline.cpp 
+OFFLINE_SRCS := memory_simulator_offline.cpp physical_memory.cpp 
 # for offline analysis
 offline: $(OFFLINE_SRCS) ${HEADER}
-	$(CXX) -std=c++17 -w -I. -O3 -o memory_simulator_offline $(OFFLINE_SRCS)
+	$(CXX) -std=c++17 -w -I. -I TinyPtr/src -O3 -o memory_simulator_offline $(OFFLINE_SRCS)
 	@echo "Offline analysis tool built successfully."
 
 # debug for offline
 debug: $(OFFLINE_SRCS) ${HEADER}
-	$(CXX) -std=c++17 -g -o memory_simulator_offline $(OFFLINE_SRCS)
+	$(CXX) -std=c++17 -g -I. -I TinyPtr/src -o memory_simulator_offline $(OFFLINE_SRCS)
 	@echo "Offline analysis tool built successfully with debug symbols."
+
+
+# Build the intermediate object file.
+
+# specific rules:
+$(OBJDIR)memory_simulator$(PINTOOL_SUFFIX): 
+	$(LINKER) $(TOOL_LDFLAGS) $(LINK_EXE) $@ $(OBJDIR)memory_simulator$(OBJ_SUFFIX) $(OBJDIR)physical_memory$(OBJ_SUFFIX) $(TOOL_LPATHS) $(TOOL_LIBS)
+
+

@@ -6,3 +6,4 @@ experiment-results
 script/**/*.csv
 script/**/*.png
 .clangd
+.cache
