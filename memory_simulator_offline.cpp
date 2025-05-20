@@ -20,19 +20,25 @@ class OfflineAnalyzer {
    public:
     OfflineAnalyzer(const SimConfig& config)
         : config_(config),
-          physicalMemory_(config.PhysicalMemBytes()),
+          physicalMemory_(
+              config.pgtbl.pgdSize == 512 && config.pgtbl.pudSize == 512 &&
+                      config.pgtbl.pmdSize == 512 && config.pgtbl.pteSize == 512
+                  ? static_cast<BasePhysicalMemory*>(
+                        new PhysicalMemory(config.PhysicalMemBytes()))
+                  : static_cast<BasePhysicalMemory*>(
+                        new MosaicPhysicalMemory(config.PhysicalMemBytes()))),
           cacheHierarchy_(
               config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
               config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
               config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
-          pageTable_(physicalMemory_, cacheHierarchy_, config.pgtbl.pteCachable,
-                     config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
-                     config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
-                     config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
-                     config.pwc.pmdWays, config.pgtbl.pgdSize,
-                     config.pgtbl.pudSize, config.pgtbl.pmdSize,
-                     config.pgtbl.pteSize, config.pgtbl.tocEnabled,
-                     config.pgtbl.tocSize) {}
+          pageTable_(*physicalMemory_, cacheHierarchy_,
+                     config.pgtbl.pteCachable, config.tlb.l1Size,
+                     config.tlb.l1Ways, config.tlb.l2Size, config.tlb.l2Ways,
+                     config.pwc.pgdSize, config.pwc.pgdWays, config.pwc.pudSize,
+                     config.pwc.pudWays, config.pwc.pmdSize, config.pwc.pmdWays,
+                     config.pgtbl.pgdSize, config.pgtbl.pudSize,
+                     config.pgtbl.pmdSize, config.pgtbl.pteSize,
+                     config.pgtbl.tocEnabled, config.pgtbl.tocSize) {}
 
     bool Run() {
         // Open trace file
@@ -158,7 +164,7 @@ class OfflineAnalyzer {
 
    private:
     SimConfig config_;
-    MosaicPhysicalMemory physicalMemory_;
+    BasePhysicalMemory* physicalMemory_;
     CacheHierarchy cacheHierarchy_;
     PageTable pageTable_;
     UINT64 accessCount_ = 0;

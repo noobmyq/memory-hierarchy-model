@@ -18,13 +18,19 @@ class Simulator {
     Simulator(const SimConfig& config,
               std::unique_ptr<std::ofstream> out_stream = nullptr)
         : config_(config),
-          physical_memory_(config.PhysicalMemBytes()),
           cache_hierarchy_(
               config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
               config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
               config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
+          physical_memory_(
+              config.pgtbl.pgdSize == 512 && config.pgtbl.pudSize == 512 &&
+                      config.pgtbl.pmdSize == 512 && config.pgtbl.pteSize == 512
+                  ? static_cast<BasePhysicalMemory*>(
+                        new PhysicalMemory(config.PhysicalMemBytes()))
+                  : static_cast<BasePhysicalMemory*>(
+                        new MosaicPhysicalMemory(config.PhysicalMemBytes()))),
           page_table_(
-              physical_memory_, cache_hierarchy_, config.pgtbl.pteCachable,
+              *physical_memory_, cache_hierarchy_, config.pgtbl.pteCachable,
               config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
               config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
               config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
@@ -69,7 +75,7 @@ class Simulator {
 
    private:
     SimConfig config_;
-    PhysicalMemory physical_memory_;
+    BasePhysicalMemory* physical_memory_;
     CacheHierarchy cache_hierarchy_;
     PageTable page_table_;
     UINT64 access_count_ = 0;
