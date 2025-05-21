@@ -11,8 +11,8 @@ typedef uint32_t UINT32;
 typedef uint64_t UINT64;
 
 // Constants for page table
-constexpr UINT64 kMemTracePageSize = 4096;  // 4KB pages
-constexpr UINT64 kPageShift = 12;           // log2(kMemTracePageSize)
+constexpr UINT64 kPageShift = 21;  // log2(kMemTracePageSize)
+constexpr UINT64 kMemTracePageSize = 1ULL << kPageShift;  // 4KB page size
 constexpr UINT64 kPageMask =
     kMemTracePageSize - 1;  // Mask for offset within page
 constexpr UINT64 kPhysicalMemorySize = 1ULL << 40;  // 1TB physical memory
