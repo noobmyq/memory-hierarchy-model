@@ -369,7 +369,6 @@ class PageTable {
                 pteEntry.pfn = physMem_.AllocateFrame(pteAddr);
                 UINT64 physFrame = pteEntry.pfn >> kPageShift;
                 pageTables_[physFrame] = std::make_unique<PageTablePage>();
-                pteStats_.allocations++;
                 pteStats_.entries++;
             }
             physFrame = pteEntry.pfn;
