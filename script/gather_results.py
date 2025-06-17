@@ -13,6 +13,19 @@ import glob
 import pandas as pd
 from pathlib import Path
 
+# Calculate average cycles per walk, make sure we have all the following stats:
+# l1_tlb_access, l2_tlb_access, pgd_pwc_access, pud_pwc_access, pmd_pwc_access
+# translate_l2_cache_access, translate_l3_cache_access, page_walk_memory_accesses
+# latency for each level is defined below
+l1_tlb_latency = 1
+l2_tlb_latency = 10
+pgd_pwc_latency = 1
+pud_pwc_latency = 1
+pmd_pwc_latency = 1
+l2_cache_latency = 16
+l3_cache_latency = 40
+memory_latency = 200
+
 
 
 def parse_output_file(file_path):
@@ -303,14 +316,14 @@ def parse_output_file(file_path):
     # l1_tlb_access, l2_tlb_access, pgd_pwc_access, pud_pwc_access, pmd_pwc_access
     # translate_l2_cache_access, translate_l3_cache_access, page_walk_memory_accesses
     # latency for each level is defined below
-    l1_tlb_latency = 1
-    l2_tlb_latency = 10
-    pgd_pwc_latency = 1
-    pud_pwc_latency = 1
-    pmd_pwc_latency = 1
-    l2_cache_latency = 16
-    l3_cache_latency = 40
-    memory_latency = 200
+    # l1_tlb_latency = 1
+    # l2_tlb_latency = 10
+    # pgd_pwc_latency = 1
+    # pud_pwc_latency = 1
+    # pmd_pwc_latency = 1
+    # l2_cache_latency = 16
+    # l3_cache_latency = 40
+    # memory_latency = 200
     # Calculate average cycles per walk
     if ('l1_tlb_accesses' in metrics and metrics['l1_tlb_accesses'] > 0 and
         'l2_tlb_accesses' in metrics and metrics['l2_tlb_accesses'] > 0 and
@@ -475,6 +488,23 @@ def gather_results(base_dir):
     for exp_dir in exp_dirs:
         # Get experiment purpose
         purpose = read_experiment_purpose(exp_dir / "README.md")
+
+        # Get workload type by reading the README.md and locate the following pattern:
+        '''
+        ## Workload Type
+        special
+        '''
+        workload_type = "unknown"
+        readme_path = exp_dir / "README.md"
+        if readme_path.exists():
+            try:
+                with open(readme_path, 'r') as f:
+                    content = f.read()
+                    match = re.search(r'## Workload Type\n(.*?)\n', content)
+                    if match:
+                        workload_type = match.group(1).strip()
+            except Exception as e:
+                print(f"Error reading README {readme_path}: {e}")
         
         # Find all output files recursively
         output_files = list(exp_dir.glob("**/output_*.txt"))
@@ -492,6 +522,8 @@ def gather_results(base_dir):
                 
                 # Add experiment purpose
                 config['purpose'] = purpose
+
+                config['workload_type'] = workload_type
                 
                 # Add summary file path for reference
                 summary_file = str(output_file).replace("output_", "summary_")
@@ -522,7 +554,7 @@ def define_column_order():
     """
     return [
         # Experiment info
-        'timestamp', 'experiment_name', 'purpose', 'workload',
+        'timestamp', 'experiment_name', 'purpose', 'workload', 'workload_type',
         
         # Configuration
         'pgd_size', 'pud_size', 'pmd_size', 'pte_size',
@@ -704,6 +736,7 @@ def create_summary_df(df):
     count_df = df.groupby(group_columns).size().reset_index(name='run_count')
     summary_df = pd.merge(summary_df, count_df, on=group_columns)
     
+
     return summary_df
 
 def create_toc_comparative_df(df):

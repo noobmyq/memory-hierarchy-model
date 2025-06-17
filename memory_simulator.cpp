@@ -1,3 +1,4 @@
+#include <atomic>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -12,69 +13,11 @@ using std::cout;
 
 static_assert(sizeof(MEMREF) == 24, "MEMREF struct has unexpected padding");
 
-// --- Simulator Class ---
-class Simulator {
-   public:
-    Simulator(const SimConfig& config,
-              std::unique_ptr<std::ofstream> out_stream = nullptr)
-        : config_(config),
-          physical_memory_(config.PhysicalMemBytes()),
-          cache_hierarchy_(
-              config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
-              config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
-              config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
-          page_table_(
-              physical_memory_, cache_hierarchy_, config.pgtbl.pteCachable,
-              config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
-              config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
-              config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
-              config.pwc.pmdWays, config.pgtbl.pgdSize, config.pgtbl.pudSize,
-              config.pgtbl.pmdSize, config.pgtbl.pteSize,
-              config.pgtbl.tocEnabled, config.pgtbl.tocSize),
-          out_stream_(std::move(out_stream)) {}
-    void process_batch(const MEMREF* buffer, UINT64 numElements) {
-        for (UINT64 i = 0; i < numElements; ++i) {
-            const MEMREF& ref = buffer[i];
-            access_count_++;
-            const ADDRINT vaddr = ref.ea;
-            const ADDRINT paddr = page_table_.Translate(vaddr);
-            UINT64 value = 0;
-            cache_hierarchy_.Access(paddr, value, !ref.read);
-
-            // UINT64 vpn = vaddr / kMemTracePageSize;
-            // UINT64 ppn = paddr / kMemTracePageSize;
-            // virtual_pages_[vpn]++;
-            // physical_pages_[ppn]++;
-
-            if (access_count_ % 10000000 == 0) {
-                cout << "Processed " << (access_count_ / 10000000)
-                     << "*10M accesses\r" << std::flush;
-            }
-        }
-    }
-
-    void print_stats() {
-        // cout << "\n\nSimulation Results:\n"
-        //      << "==================\n"
-        //      << "Total accesses:       " << access_count_ << "\n"
-        //      << "Unique virtual pages: " << virtual_pages_.size() << "\n"
-        //      << "Unique physical pages:" << physical_pages_.size() << "\n"
-        //      << "Physical memory used: "
-        //      << (physical_pages_.size() * kMemTracePageSize) / (1024.0 * 1024)
-        //      << " MB\n";
-        page_table_.PrintDetailedStats(*out_stream_);
-        page_table_.PrintMemoryStats(*out_stream_);
-        cache_hierarchy_.PrintStats(*out_stream_);
-    }
-
-   private:
-    SimConfig config_;
-    PhysicalMemory physical_memory_;
-    CacheHierarchy cache_hierarchy_;
-    PageTable page_table_;
-    UINT64 access_count_ = 0;
-    std::unique_ptr<std::ofstream> out_stream_;
-};
+// --- Global instruction counter and threshold knob ---
+UINT64 g_instr_count(0);
+KNOB<UINT64> KnobInstrThreshold(
+    KNOB_MODE_WRITEONCE, "pintool", "instr_threshold", "0",
+    "Terminate after this many instructions (0 = unlimited)");
 
 // --- Pin Configuration ---
 #define NUM_BUF_PAGES 1024
@@ -139,10 +82,95 @@ KNOB<std::string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o",
                                  "memory_simulator.out",
                                  "Output file for simulation results");
 
+// --- Simulator Class ---
+class Simulator {
+   public:
+    Simulator(const SimConfig& config,
+              std::unique_ptr<std::ofstream> out_stream = nullptr)
+        : config_(config),
+          physical_memory_(config.PhysicalMemBytes()),
+          cache_hierarchy_(
+              config.cache.l1Size, config.cache.l1Ways, config.cache.l1Line,
+              config.cache.l2Size, config.cache.l2Ways, config.cache.l2Line,
+              config.cache.l3Size, config.cache.l3Ways, config.cache.l3Line),
+          page_table_(
+              physical_memory_, cache_hierarchy_, config.pgtbl.pteCachable,
+              config.tlb.l1Size, config.tlb.l1Ways, config.tlb.l2Size,
+              config.tlb.l2Ways, config.pwc.pgdSize, config.pwc.pgdWays,
+              config.pwc.pudSize, config.pwc.pudWays, config.pwc.pmdSize,
+              config.pwc.pmdWays, config.pgtbl.pgdSize, config.pgtbl.pudSize,
+              config.pgtbl.pmdSize, config.pgtbl.pteSize,
+              config.pgtbl.tocEnabled, config.pgtbl.tocSize),
+          out_stream_(std::move(out_stream)) {}
+    void process_batch(const MEMREF* buffer, UINT64 numElements) {
+        for (UINT64 i = 0; i < numElements; ++i) {
+            const MEMREF& ref = buffer[i];
+            access_count_++;
+            const ADDRINT vaddr = ref.ea;
+            const ADDRINT paddr = page_table_.Translate(vaddr);
+            UINT64 value = 0;
+            cache_hierarchy_.Access(paddr, value, !ref.read);
+
+            // UINT64 vpn = vaddr / kMemTracePageSize;
+            // UINT64 ppn = paddr / kMemTracePageSize;
+            // virtual_pages_[vpn]++;
+            // physical_pages_[ppn]++;
+
+            if (access_count_ % 10000000 == 0) {
+                if (KnobInstrThreshold.Value()) {
+                    cout << "Instruction count: " << g_instr_count / 1000000
+                         << "M, ";
+                }
+                cout << "Processed " << (access_count_ / 10000000)
+                     << "*10M accesses\r" << std::flush;
+            }
+        }
+        if (KnobInstrThreshold.Value() &&
+            g_instr_count >= KnobInstrThreshold.Value()) {
+            this->print_stats();
+            std::flush(*out_stream_);
+            PIN_ExitProcess(0);
+        }
+    }
+
+    void print_stats() {
+        // cout << "\n\nSimulation Results:\n"
+        //      << "==================\n"
+        //      << "Total accesses:       " << access_count_ << "\n"
+        //      << "Unique virtual pages: " << virtual_pages_.size() << "\n"
+        //      << "Unique physical pages:" << physical_pages_.size() << "\n"
+        //      << "Physical memory used: "
+        //      << (physical_pages_.size() * kMemTracePageSize) / (1024.0 * 1024)
+        //      << " MB\n";
+        page_table_.PrintDetailedStats(*out_stream_);
+        page_table_.PrintMemoryStats(*out_stream_);
+        cache_hierarchy_.PrintStats(*out_stream_);
+    }
+
+   private:
+    SimConfig config_;
+    PhysicalMemory physical_memory_;
+    CacheHierarchy cache_hierarchy_;
+    PageTable page_table_;
+    UINT64 access_count_ = 0;
+    std::unique_ptr<std::ofstream> out_stream_;
+};
+
+VOID docount() {
+    g_instr_count++;
+}
+
+VOID Instruction(INS ins, VOID* v) {
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)docount, IARG_END);
+}
+
 // --- Pin Instrumentation ---
 VOID Trace(TRACE trace, VOID* v) {
+    // Count all instructions in this trace
     for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            // Increment instruction count
+
             if (!INS_IsStandardMemop(ins))
                 continue;
             UINT64 memOps = INS_MemoryOperandCount(ins);
@@ -252,6 +280,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Register instrumentation and fini functions
+    if (KnobInstrThreshold.Value() > 0) {
+        INS_AddInstrumentFunction(Instruction, 0);
+    }
     TRACE_AddInstrumentFunction(Trace, 0);
     PIN_AddFiniFunction(Fini, simulator);
 

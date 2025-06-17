@@ -26,4 +26,7 @@ see `memory_simulator.cpp` for simulator options
 - [] Prefetch
 - [] TODO (keep recursive)
 
+## Fixed
+- [x] Total memory access number mismatch
+
 ## Optimization

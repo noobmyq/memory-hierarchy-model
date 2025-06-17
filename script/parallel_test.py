@@ -32,9 +32,17 @@ DEFAULT_TOC_CONFIG = [
 # Page table size configurations
 DEFAULT_PAGE_TABLE_SIZES = [
     (512, 512, 512, 512),
+    # ( 2048, 2048)
+    (8, 2048, 2048, 2048),
+    # (8, 4096, 4096, 512),
+    # (4, 2048, 4096, 2048)
+    (16, 2048, 2048, 1024),
     # (8, 2048, 2048, 2048),
-    (8, 4096, 4096, 512),
-    (4, 2048, 4096, 2048)
+    # (16, 2048, 2048, 1024),
+    # (1, 512, 512, 512),
+    # (1, 32, 2048, 2048),
+    
+    # (4, 4096, 4096, 1024),
     # (16, 2048, 4096, 512),
     # (32, 2048, 2048, 512),
     # (1, 2097152, 128, 256),
@@ -50,21 +58,30 @@ DEFAULT_PWC_CONFIGS = [
 ]
 
 SPECIAL_WORKLOAD_LIST = [
-    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
-    {'name': 'BTree', 'options': ['3000000', '100000']}, #~300MB
-    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.5GB
-    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.4GB
-    
+    # {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
+    # {'name': 'BTree', 'options': ['3000000', '100000']}, #~300MB
+    # {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.5GB
+    # {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~8.4GB
+    {'name': 'seq-list-static', 'options': ['-s', '24', '-e', '24', '-V']}, #~13.3GB
+]
+
+# other_options = ["-instr_threshold 20000000000"]
+other_options = []
+
+# a super huge workload list, only allowed to run with "-instr_threshold 2000000000" in other_options
+SUPER_HUGE_WORKLOAD_LIST = [
+    {'name': 'BTree', 'options': ['1500000000' '70000000']},
+    {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '170000', '-p', '4000000']},
+    {'name': 'gups-static', 'options': ['128']},
 ]
 
 # Define workload lists
 HUGE_WORKLOAD_LIST = [
+    {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
     {'name': 'gups-static', 'options': ['20']}, # ~16GB
     {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
-    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf10-numpart-1']}, #~27.9G
     {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '40000']}, # ~19.6GB
-    {'name': 'BTree', 'options': ['90000000', '100']}, # ~8.75GB
-
 ]
 
 LARGE_WORKLOAD_LIST = [
@@ -99,17 +116,18 @@ MIDDLE_WORKLOAD_LIST = [
 
 TINY_WORKLOAD_LIST = [
     # {'name': 'graph500_reference_bfs', 'options': ['20', '20']} #~1.01GB, run even slower
-    # {'name': 'seq-list-static', 'options': ['-s', '20', '-e', '20']}, #~697MB, run very slow
+    {'name': 'seq-list-static', 'options': ['-s', '20', '-e', '20']}, #~697MB, run very slow
     {'name': 'BTree', 'options': ['700000', '100000']}, # ~71MB
     {'name': 'xsbench-static', 'options': ['-t', '1', '-g', '2000', '-p', '40000']}, #~1.01GB
     {'name': 'gups-static', 'options': ['10']}, # ~8.0G
-    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-2']}, #~4.33GB
-    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-2']}, #~4.26GB
+    {'name': 'graphbig/dc', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~4.33GB
+    {'name': 'graphbig/pr', 'options': ['--dataset', '~/workload/snb/social_network-sf3-numpart-1']}, #~4.26GB
 ]
+
 
 # Base simulator command template
 SIMULATOR_BASE_CMD = (
-    'time ../../../pin -t obj-intel64/memory_simulator.so '
+    'time ../../../pin -t obj-intel64/memory_simulator.so {other_options} '
     '-pgd_pwc_size {pgd_size} '
     '-pgd_pwc_ways {pgd_ways} '
     '-pud_pwc_size {pud_size} '
@@ -189,6 +207,7 @@ def run_one_experiment(config_data):
                 cpu_affinity_counter.value += 1
         # Format the simulator command
         run_cmd = SIMULATOR_BASE_CMD.format(
+            other_options=' '.join(other_options),
             pgd_size=pgd_size,
             pgd_ways=pgd_ways,
             pud_size=pud_size,
@@ -288,7 +307,7 @@ def run_one_experiment(config_data):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run memory simulator with different configurations in parallel')
-    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny', 'middle', 'huge', 'special'], required=True, 
+    parser.add_argument('-t', '--workload_type', type=str, choices=['large', 'tiny', 'middle', 'huge', 'special', 'super_huge'], required=True, 
                         help='Workload type: large or tiny')
     parser.add_argument('-n', '--workload_num', type=int, 
                         help='Workload number (optional, if not provided, all workloads will be run)')
@@ -383,8 +402,11 @@ def main():
         workload_list = TINY_WORKLOAD_LIST
     elif args.workload_type == 'special':
         workload_list = SPECIAL_WORKLOAD_LIST
+    elif args.workload_type == 'super_huge':
+        workload_list = SUPER_HUGE_WORKLOAD_LIST
+        assert "-instr_threshold" in "".join(other_options), "Please add -instr_threshold 2000000000 to other_options"
     else:
-        parser.error("Invalid workload type. Choose 'large', 'middle', 'tiny', 'huge', or 'special'")
+        parser.error("Invalid workload type. Choose 'large', 'middle', 'tiny', 'huge', 'special', or 'super_huge'")
         exit(1)
     
     # assert all workloads exist
@@ -417,7 +439,7 @@ def main():
     
     # Calculate parallelism level
     total_configs = len(page_table_configs) * len(pwc_configs) * len(toc_configs) * len(workload_list)
-    num_workers = min(total_configs * args.parallel_factor, len(configs), 8 if args.workload_type == 'huge' or args.workload_type == 'special' else 20)
+    num_workers = min(total_configs * args.parallel_factor, len(configs), 8 if args.workload_type == 'huge' or args.workload_type == 'special' or args.workload_type == 'super_huge' else 20)
     print(f"Running {len(configs)} tasks with {num_workers} parallel workers")
     
     # Start timing
